@@ -1,5 +1,5 @@
 import os, time, gc
-import requests
+import httpx, asyncio
 import pandas as pd
 import geopandas as gpd
 
@@ -73,42 +73,43 @@ PEAK_SEASON_MAP = {
 
 
 def main():
-    prepare_road_network()
+    asyncio.run(get_ala_data(WOMBAT_SCIENTIFIC_NAME, "New South Wales"))
 
 
-def get_gbif_data(species_key: int) -> str:
+async def get_gbif_data(species_key: int, state: str) -> str:
     offset = 0
     results = []
 
-    while True:
-        params = {
-            "taxonKey": species_key,
-            "country": "AU",
-            "hasCoordinate": "true",
-            "limit": 300,
-            "offset": offset,
-        }
+    async with httpx.AsyncClient() as client:
+        while True:
+            params = {
+                "taxonKey": species_key,
+                "country": "AU",
+                "hasCoordinate": "true",
+                "stateProvince": f"{state}",
+                "year": [2026, 2025, 2024, 2023, 2022, 2021, 2020],
+                "limit": 300,
+                "offset": offset,
+            }
 
-        # sending the requests
-        response = requests.get(GBIF_URL, params=params)
+            response = await client.get(GBIF_URL, params=params)
 
-        # checking if the request was successful
-        if response.status_code == 200:
-            data = response.json()
-            results.extend(data["results"])
+            # checking if the request was successful
+            if response.status_code == 200:
+                data = response.json()
+                results.extend(data["results"])
 
-            # stopping if it's the end of the dataset
-            if data["endOfRecords"] or offset > 100:
-                break
-            offset += 300
-        else:
-            print(f"Error: {response.status_code}")
-            print(response.text)
-            return 1
-
-        print(f"Data Pulled: {offset}")
+                print(f"Data Pulled: {offset}")
+                # stopping if it's the end of the dataset
+                if data["endOfRecords"] or offset > 100:
+                    break
+                offset += 300
+            else:
+                print(f"Error: {response.status_code}")
+                print(response.text)
+                return 1
         # for avoiding HTTP 429 error
-        time.sleep(1)
+        await asyncio.sleep(1.0)
 
     if results:
         file_name = (
@@ -125,40 +126,55 @@ def get_gbif_data(species_key: int) -> str:
         return None
 
 
-def get_ala_data(species_scientific_name: str) -> str:
+async def get_ala_data(species_scientific_name: str, state: str) -> str:
     offset = 0
     results = []
 
-    while True:
-        params = {
-            "q": species_scientific_name,
-            "fq": ["country:Australia"],
-            "pageSize": 1000,  # records per page (max 1000)
-            "startIndex": offset,  # for pagination
-            "fl": "scientificName,month,year,stateProvince,country,decimalLatitude,decimalLongitude",  # fields to return
-        }
-        headers = {"Accept": "application/json"}
+    async with httpx.AsyncClient() as client:
+        while True:
+            params = {
+                "q": species_scientific_name,
+                "fq": [
+                    "country:Australia",
+                    "year:[2020 TO 2026]",
+                    f"stateProvince:{state}",
+                ],
+                "pageSize": 1000,  # records per page (max 1000)
+                "startIndex": offset,  # for pagination
+                "fl": "scientificName,month,year,stateProvince,decimalLatitude,decimalLongitude",  # fields to return
+            }
+            headers = {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
 
-        # sending the requests
-        response = requests.get(ALA_URL, params=params, headers=headers)
+            # sending the requests
+            response = await client.get(ALA_URL, params=params, headers=headers, follow_redirects=True)
 
-        # checking if the request was successful
-        if response.status_code == 200:
-            data = response.json()
-            results.extend(data["occurrences"])
+            # checking if the request was successful
+            if response.status_code == 200:
+                data = response.json()
+                results.extend(data["occurrences"])
 
-            # stopping if it's the end of the dataset
-            if data["totalRecords"] < (offset + 500) or offset > 10:
-                break
-            offset += 500
-        else:
-            print(f"Error: {response.status_code}")
-            print(response.text)
-            return 1
-
-        print(f"Data Pulled: {offset}")
-        # for avoiding HTTP 429 error
-        time.sleep(1)
+                print(f"Data Pulled: {offset}")
+                try:
+                    # check if we've reached the end of the dataset to avoid data loss
+                    total_records = data.get("totalRecords", 0)
+                    if not data.get("occurrences") or offset + 1000 >= total_records:
+                        break
+                    # temporary break for testing purposes
+                    elif offset > 10:
+                        break
+                    offset += 1000
+                except (KeyError, TypeError):
+                    # catch potential missing fields or invalid types to prevent infinite loops
+                    break
+            else:
+                print(f"Error: {response.status_code}")
+                print(response.text)
+                return 1
+            # for avoiding HTTP 429 error
+            await asyncio.sleep(1.0)
 
     if results:
         file_name = f"{results[0]['scientificName'].lower().replace(' ', '_')}_sightings_ala.csv"
