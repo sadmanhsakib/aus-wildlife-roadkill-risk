@@ -49,46 +49,15 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
     del sightings
     gc.collect()
 
-    print("Loading the roads data....")
+    print("Loading road network from the parquet file....")
     # loading the roads data
-    roads = gpd.read_file("data/australia.gpkg", layer="gis_osm_roads_free")
-    # keeping the relevant columns
-    roads = roads[["osm_id", "fclass", "name", "geometry"]]
+    road_network_projected = gpd.read_parquet("road_data/australia_projected.parquet")
 
-    # speed limit and traffic volume by the road types
-    # traffic proxy is a rating out of 5
-    # : very busy traffic, 1: very light traffic
-    FCLASS_DEFAULTS = {
-        "motorway": (110, 5),
-        "trunk": (100, 4),
-        "primary": (100, 3),
-        "secondary": (80, 2),
-        "tertiary": (80, 2),
-        "unclassified": (60, 1),
-        "track": (40, 1),
-    }
-
-    # filtering to keep the relevant roads
-    roads = roads[roads["fclass"].isin(FCLASS_DEFAULTS.keys())]
-    # adding the speed limit
-    roads["speed_zone"] = roads["fclass"].map(lambda x: FCLASS_DEFAULTS[x][0])
-    # adding the traffic proxy
-    roads["traffic_proxy"] = roads["fclass"].map(lambda x: FCLASS_DEFAULTS[x][1])
-
-    roads_projected = roads.to_crs("EPSG:32754")
-    # freeing up memory space
-    del roads
-    gc.collect()
-
-    # adding buffer of 500m around the roads
-    roads_with_buffer = gpd.GeoDataFrame(
-        geometry=roads_projected.buffer(500), crs="EPSG:32754"
-    ).reset_index(drop=True)
-
+    print("Calculating distance to the nearest road....")
     # spatial join sightings to nearest road
     sightings_with_roads = gpd.sjoin_nearest(
         sightings_projected,
-        roads_projected[["fclass", "geometry"]],
+        road_network_projected[["fclass", "speed_zone", "traffic_proxy", "geometry"]],
         how="left",
         distance_col="distance_to_road",
     )
@@ -98,6 +67,10 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
 
     # drop unnecessary column
     sightings_with_roads = sightings_with_roads.drop(columns=["index_right"])
+
+    print("Loading road network with buffer from the parquet file....")
+    # loading the roads data
+    roads_with_buffer = gpd.read_parquet("road_data/australia_projected_buffer.parquet")
 
     print("Finding sightings within 500m of a road....")
     # finding sightings within 500m of a road
@@ -139,7 +112,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
 
     return (
         modeling_gdf,
-        roads_projected,
+        road_network_projected,
         roads_with_buffer,
     )
 
@@ -150,17 +123,8 @@ def visualize(
     roads_with_buffer: gpd.GeoDataFrame,
 ):
     print("Loading the state data....")
-    # loading the whole map
-    states = gpd.read_file(
-        "data/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
-    )
-
-    # filtering to just the main states
-    states = states[states["STE_NAME21"].isin(MAIN_STATES)]
-    states_projected = states.to_crs("EPSG:32754")
-    # freeing up memory space
-    del states
-    gc.collect()
+    # loading the statewise map for the background
+    states_projected = gpd.read_parquet("road_data/states_projected.parquet")
 
     # setting the background theme
     sns.set_theme(style="whitegrid", palette="deep")

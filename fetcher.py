@@ -1,6 +1,7 @@
-import os, time
+import os, time, gc
 import requests
 import pandas as pd
+import geopandas as gpd
 
 # GBIF KEYS
 KANGAROO_RED_KEY = 12019022
@@ -36,7 +37,7 @@ STATE_CODES = {
     "Victoria": "VIC",
     "Tasmania": "TAS",
     "Australian Capital Territory": "ACT",
-    "Nortern Territory": "NT",
+    "Northern Territory": "NT",
     "South Australia": "SA",
     "Western Australia": "WA",
 }
@@ -72,13 +73,7 @@ PEAK_SEASON_MAP = {
 
 
 def main():
-    filenames = []
-
-    for filename in os.listdir("sightings/"):
-        if filename.endswith(".parquet"):
-            filenames.append(f"sightings/{filename}")
-
-    merge("sightings.parquet", filenames, shouldDelete=False)
+    prepare_road_network()
 
 
 def get_gbif_data(species_key: int) -> str:
@@ -138,7 +133,7 @@ def get_ala_data(species_scientific_name: str) -> str:
         params = {
             "q": species_scientific_name,
             "fq": ["country:Australia"],
-            "pageSize": 500,  # records per page (max 1000)
+            "pageSize": 1000,  # records per page (max 1000)
             "startIndex": offset,  # for pagination
             "fl": "scientificName,month,year,stateProvince,country,decimalLatitude,decimalLongitude",  # fields to return
         }
@@ -299,5 +294,84 @@ def enrich(path: str):
         df.to_parquet(file_name, index=False)
 
 
+def prepare_road_network():
+    print("Loading the road network...")
+
+    # loading the roads data
+    road_network = gpd.read_file(
+        "road_data/australia.gpkg",
+        layer="gis_osm_roads_free",
+        columns=["osm_id", "name", "fclass", "geometry"],
+    )
+
+    # speed limit and traffic volume by the road types
+    # traffic proxy is a rating out of 5
+    # : very busy traffic, 1: very light traffic
+    FCLASS_DEFAULTS = {
+        "motorway": (110, 5),
+        "trunk": (100, 4),
+        "primary": (100, 3),
+        "secondary": (80, 2),
+        "tertiary": (80, 2),
+        "unclassified": (60, 1),
+        "track": (40, 1),
+        "residential": (50, 1),
+    }
+
+    # filtering to keep the relevant roads
+    road_network = road_network[road_network["fclass"].isin(FCLASS_DEFAULTS.keys())]
+    # adding the speed limit
+    road_network["speed_zone"] = road_network["fclass"].map(
+        lambda x: FCLASS_DEFAULTS[x][0]
+    )
+    # adding the traffic proxy
+    road_network["traffic_proxy"] = road_network["fclass"].map(
+        lambda x: FCLASS_DEFAULTS[x][1]
+    )
+    # converting it to projected system for accurate distance calculations
+    road_network_projected = road_network.to_crs("EPSG:32754")
+    # freeing up memory space
+    del road_network
+    gc.collect()
+
+    road_network_projected.to_parquet(
+        "road_data/australia_projected.parquet", index=False
+    )
+    print("✅Road network parsed and saved to australia_projected.parquet")
+
+    # adding buffer of 500m around the roads
+    print("Adding buffer of 500m around the roads....")
+    roads_with_buffer = gpd.GeoDataFrame(
+        geometry=road_network_projected.buffer(500), crs="EPSG:32754"
+    ).reset_index(drop=True)
+
+    roads_with_buffer.to_parquet(
+        "road_data/australia_projected_buffer.parquet", index=False
+    )
+    print("✅Road network parsed and saved to australia_projected_buffer.parquet")
+
+
+def prepare_state_network():
+    print("Loading the state data...")
+
+    # loading the whole map
+    states = gpd.read_file(
+        "road_data/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
+    )
+
+    # filtering to just the main states
+    states = states[states["STE_NAME21"].isin(STATE_CODES.keys())]
+    states_projected = states.to_crs("EPSG:32754")
+    # freeing up memory space
+    del states
+    gc.collect()
+
+    states_projected.to_parquet("road_data/states_projected.parquet", index=False)
+    print("✅State network parsed and saved to states_projected.parquet")
+
+
 if __name__ == "__main__":
+    start_time = time.time()
     main()
+    end_time = time.time()
+    print(f"Time taken: {end_time - start_time} seconds")

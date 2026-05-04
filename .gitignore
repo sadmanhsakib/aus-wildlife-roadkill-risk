@@ -8,10 +8,13 @@ __pycache__/
 
 cache
 test.py
-data/
+.env
+road_data/
 backup/
 sightings/
-project_blueprint.md
+blueprint.md
+blueprint.pdf
+progress.md
 
 # Distribution / packaging
 .Python
