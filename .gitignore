@@ -11,7 +11,7 @@ test.py
 .env
 road_data/
 backup/
-sightings/
+sightings.parquet
 blueprint.md
 blueprint.pdf
 progress.md

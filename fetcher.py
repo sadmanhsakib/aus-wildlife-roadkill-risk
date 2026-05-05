@@ -73,7 +73,7 @@ PEAK_SEASON_MAP = {
 
 
 def main():
-    asyncio.run(get_ala_data(WOMBAT_SCIENTIFIC_NAME, "New South Wales"))
+    asyncio.run(get_gbif_data(KANGAROO_GREY_KEY, "New South Wales"))
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
@@ -117,6 +117,17 @@ async def get_gbif_data(species_key: int, state: str) -> str:
         )
         # exporting the collected data to a csv file
         df = pd.DataFrame(results)
+        # only keeping the required rows
+        df = df[
+            [
+                "species",
+                "month",
+                "year",
+                "stateProvince",
+                "decimalLatitude",
+                "decimalLongitude",
+            ]
+        ]
         df.to_csv(file_name, index=False)
         print(f"✅Data exported to {file_name} successfully. ")
 
@@ -145,11 +156,13 @@ async def get_ala_data(species_scientific_name: str, state: str) -> str:
             }
             headers = {
                 "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             }
 
             # sending the requests
-            response = await client.get(ALA_URL, params=params, headers=headers, follow_redirects=True)
+            response = await client.get(
+                ALA_URL, params=params, headers=headers, follow_redirects=True
+            )
 
             # checking if the request was successful
             if response.status_code == 200:
@@ -190,7 +203,7 @@ async def get_ala_data(species_scientific_name: str, state: str) -> str:
         return None
 
 
-def clean_data(file_name: str):
+def clean_DataFrame(file_name: str):
     column_schema = [
         "species",
         "month",
@@ -308,6 +321,7 @@ def enrich(path: str):
         )
 
         df.to_parquet(file_name, index=False)
+        print(f"{path} enriched successfully. ")
 
 
 def prepare_road_network():

@@ -18,7 +18,7 @@ MAIN_STATES = (
     "Northern Territory",
 )
 
-sightings_df = pd.read_parquet("sightings/sightings.parquet")
+sightings_df = pd.read_parquet("sightings.parquet")
 
 
 def main():
@@ -28,6 +28,9 @@ def main():
         roads_with_buffer,
     ) = prepare_spatial_data(sightings_df)
 
+    print(modeling_gdf["risk_label"].value_counts())
+
+    return
     print("Starting Visualization.....")
     visualize(
         modeling_gdf,
@@ -61,6 +64,10 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
         how="left",
         distance_col="distance_to_road",
     )
+    # dropping the duplicate sightings (in case of multiple nearest roads at same distance)
+    sightings_with_roads = sightings_with_roads[
+        ~sightings_with_roads.index.duplicated(keep="first")
+    ]
     # freeing up memory space
     del sightings_projected
     gc.collect()
@@ -78,7 +85,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
         sightings_with_roads, roads_with_buffer, how="inner", predicate="within"
     )
 
-    # dropping the duplicate sightings
+    # dropping the duplicate high risk sightings that were in contact of multiple roads
     high_risk_sightings = high_risk_sightings[
         ~high_risk_sightings.index.duplicated(keep="first")
     ]
