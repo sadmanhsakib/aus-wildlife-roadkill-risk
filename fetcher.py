@@ -59,6 +59,7 @@ SEASON_MAP = {
 
 PEAK_SEASON_MAP = {
     "Osphranter rufus": [9, 10, 11, 12],
+    "Macropus rufus": [9, 10, 11, 12],
     "Macropus giganteus": [9, 10, 11, 12],
     "Wallabia bicolor": [9, 10, 11],
     "Notamacropus rufogriseus": [10, 11, 12, 1],
@@ -73,7 +74,8 @@ PEAK_SEASON_MAP = {
 
 
 def main():
-    asyncio.run(get_gbif_data(KANGAROO_GREY_KEY, "New South Wales"))
+    df = pd.read_parquet("sightings.parquet")
+    print(df.info())
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
@@ -123,7 +125,6 @@ async def get_gbif_data(species_key: int, state: str) -> str:
                 "species",
                 "month",
                 "year",
-                "stateProvince",
                 "decimalLatitude",
                 "decimalLongitude",
             ]
@@ -152,7 +153,7 @@ async def get_ala_data(species_scientific_name: str, state: str) -> str:
                 ],
                 "pageSize": 1000,  # records per page (max 1000)
                 "startIndex": offset,  # for pagination
-                "fl": "scientificName,month,year,stateProvince,decimalLatitude,decimalLongitude",  # fields to return
+                "fl": "scientificName,month,year,decimalLatitude,decimalLongitude",  # fields to return
             }
             headers = {
                 "Accept": "application/json",
@@ -208,7 +209,6 @@ def clean_DataFrame(file_name: str):
         "species",
         "month",
         "year",
-        "stateProvince",
         "decimalLatitude",
         "decimalLongitude",
     ]
@@ -234,17 +234,13 @@ def clean_DataFrame(file_name: str):
     # renmaing the other columns
     df = df.rename(
         columns={
-            "stateProvince": "state",
             "decimalLatitude": "latitude",
             "decimalLongitude": "longitude",
         }
     )
 
-    # adding the state codes
-    df["state"] = df["state"].map(STATE_CODES)
-
     # removing rows with missing values
-    df = df.dropna(subset=["latitude", "longitude", "year", "month", "state"])
+    df = df.dropna(subset=["latitude", "longitude", "year", "month"])
 
     # removing rows with older sighting data
     df = df.drop(df[df["year"] < 2020].index)
@@ -290,11 +286,19 @@ def merge(new_file_name: str, file_names: list, shouldDelete=True):
 
 
 def to_parquet(path: str):
-    for file_name in os.listdir(path):
-        if not file_name.endswith(".csv"):
-            continue
+    file_names = []
 
-        file_name = os.path.join(path, file_name)
+    try:
+        for file_name in os.listdir(path):
+            if not file_name.endswith(".csv"):
+                continue
+
+            file_name = os.path.join(path, file_name)
+            file_names.append(file_name)
+    except NotADirectoryError:
+        file_names.append(path)
+
+    for file_name in file_names:
         new_file_name = file_name.replace(".csv", ".parquet")
 
         df = pd.read_csv(file_name)
@@ -305,11 +309,19 @@ def to_parquet(path: str):
 
 
 def enrich(path: str):
-    for file_name in os.listdir(path):
-        if not file_name.endswith(".parquet"):
-            continue
+    file_names = []
 
-        file_name = os.path.join(path, file_name)
+    try:
+        for file_name in os.listdir(path):
+            if not file_name.endswith(".parquet"):
+                continue
+
+            file_name = os.path.join(path, file_name)
+            file_names.append(file_name)
+    except NotADirectoryError:
+        file_names.append(path)
+
+    for file_name in file_names:
         # loading the df
         df = pd.read_parquet(file_name)
 
@@ -391,6 +403,7 @@ def prepare_state_network():
 
     # filtering to just the main states
     states = states[states["STE_NAME21"].isin(STATE_CODES.keys())]
+    states = states.rename(columns={"STE_NAME21": "state"})
     states_projected = states.to_crs("EPSG:32754")
     # freeing up memory space
     del states

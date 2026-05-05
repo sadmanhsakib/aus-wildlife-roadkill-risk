@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import geopandas as gpd
 import pandas as pd
 import seaborn as sns
+import fetcher
 
 LATITUDE_COLUMN = "latitude"
 LONGITUDE_COLUMN = "longitude"
@@ -22,28 +23,20 @@ sightings_df = pd.read_parquet("sightings.parquet")
 
 
 def main():
-    (
-        modeling_gdf,
-        roads_projected,
-        roads_with_buffer,
-    ) = prepare_spatial_data(sightings_df)
+    modeling_gdf = prepare_spatial_data(sightings_df)
 
-    print(modeling_gdf["risk_label"].value_counts())
-
+    print(modeling_gdf.info())
     return
     print("Starting Visualization.....")
-    visualize(
-        modeling_gdf,
-        roads_projected,
-        roads_with_buffer,
-    )
+    visualize(modeling_gdf)
 
 
-def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
+def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     # converting pandas DataFrame to GeoDataFrame
     sightings = gpd.GeoDataFrame(
         df,
         # creating the geometry column
+        # longitude is X and latitude is Y
         geometry=gpd.points_from_xy(df[LONGITUDE_COLUMN], df[LATITUDE_COLUMN]),
         crs="EPSG:4326",
     )
@@ -51,6 +44,19 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
     # freeing up memory space
     del sightings
     gc.collect()
+
+    print("Loading state boundaries from the parquet file....")
+    # loading the state data
+    states_projected = gpd.read_parquet("road_data/states_projected.parquet")
+    sightings_projected = gpd.sjoin(
+        sightings_projected, states_projected, how="inner", predicate="within"
+    )
+    # freeing up memory space
+    del states_projected
+    gc.collect()
+
+    sightings_projected = sightings_projected.drop(columns=["index_right"])
+    sightings_projected["state"] = sightings_projected["state"].map(fetcher.STATE_CODES)
 
     print("Loading road network from the parquet file....")
     # loading the roads data
@@ -64,13 +70,13 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
         how="left",
         distance_col="distance_to_road",
     )
+    # freeing up memory space
+    del sightings_projected, road_network_projected
+    gc.collect()
     # dropping the duplicate sightings (in case of multiple nearest roads at same distance)
     sightings_with_roads = sightings_with_roads[
         ~sightings_with_roads.index.duplicated(keep="first")
     ]
-    # freeing up memory space
-    del sightings_projected
-    gc.collect()
 
     # drop unnecessary column
     sightings_with_roads = sightings_with_roads.drop(columns=["index_right"])
@@ -84,6 +90,9 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
     high_risk_sightings = gpd.sjoin(
         sightings_with_roads, roads_with_buffer, how="inner", predicate="within"
     )
+    # freeing up memory space
+    del roads_with_buffer
+    gc.collect()
 
     # dropping the duplicate high risk sightings that were in contact of multiple roads
     high_risk_sightings = high_risk_sightings[
@@ -117,21 +126,15 @@ def prepare_spatial_data(df: pd.DataFrame) -> tuple[gpd.GeoDataFrame]:
         modeling_gdf["distance_to_road"].astype(float), 2
     )
 
-    return (
-        modeling_gdf,
-        road_network_projected,
-        roads_with_buffer,
-    )
+    return modeling_gdf
 
 
-def visualize(
-    modeling_gdf: gpd.GeoDataFrame,
-    roads_projected: gpd.GeoDataFrame,
-    roads_with_buffer: gpd.GeoDataFrame,
-):
+def visualize(modeling_gdf: gpd.GeoDataFrame):
     print("Loading the state data....")
-    # loading the statewise map for the background
+    # loading the gdfs for the background
     states_projected = gpd.read_parquet("road_data/states_projected.parquet")
+    roads_projected = gpd.read_parquet("road_data/australia_projected.parquet")
+    roads_with_buffer = gpd.read_parquet("road_data/australia_projected_buffer.parquet")
 
     # setting the background theme
     sns.set_theme(style="whitegrid", palette="deep")
