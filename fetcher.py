@@ -74,8 +74,10 @@ PEAK_SEASON_MAP = {
 
 
 def main():
-    df = pd.read_parquet("sightings.parquet")
-    print(df.info())
+    files = os.listdir("sightings")
+    files = [os.path.join("sightings", file) for file in files]
+
+    merge("sightings.parquet", files, shouldDelete=False)
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
@@ -245,6 +247,12 @@ def clean_DataFrame(file_name: str):
     # removing rows with older sighting data
     df = df.drop(df[df["year"] < 2020].index)
 
+    # dropping rows outside Australia
+    df = df.drop(df[df["latitude"] < -44].index)
+    df = df.drop(df[df["latitude"] > -10].index)
+    df = df.drop(df[df["longitude"] < 113].index)
+    df = df.drop(df[df["longitude"] > 154].index)
+
     # removing duplicates
     df = df.drop_duplicates(subset=["latitude", "longitude", "year", "month"])
 
@@ -341,7 +349,7 @@ def prepare_road_network():
 
     # loading the roads data
     road_network = gpd.read_file(
-        "road_data/australia.gpkg",
+        "road_data/raw/australia.gpkg",
         layer="gis_osm_roads_free",
         columns=["osm_id", "name", "fclass", "geometry"],
     )
@@ -370,6 +378,18 @@ def prepare_road_network():
     road_network["traffic_proxy"] = road_network["fclass"].map(
         lambda x: FCLASS_DEFAULTS[x][1]
     )
+
+    # renaming the column
+    road_network.rename(
+        columns={
+            "osm_id": "road_segment_id",
+            "fclass": "road_class",
+            "name": "road_name",
+            "speed_zone": "speed_limit",
+        },
+        inplace=True,
+    )
+
     # converting it to projected system for accurate distance calculations
     road_network_projected = road_network.to_crs("EPSG:32754")
     # freeing up memory space
@@ -398,7 +418,7 @@ def prepare_state_network():
 
     # loading the whole map
     states = gpd.read_file(
-        "road_data/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
+        "road_data/raw/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
     )
 
     # filtering to just the main states

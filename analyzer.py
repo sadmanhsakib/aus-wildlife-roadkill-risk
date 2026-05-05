@@ -1,4 +1,4 @@
-import time, gc
+import time, gc, os
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import pandas as pd
@@ -23,10 +23,13 @@ sightings_df = pd.read_parquet("sightings.parquet")
 
 
 def main():
-    modeling_gdf = prepare_spatial_data(sightings_df)
+    for filename in os.listdir("backup"):
+        if filename.endswith(".parquet"):
+            df = pd.read_parquet(f"backup/{filename}")
+            modeling_gdf = prepare_spatial_data(df)
 
-    print(modeling_gdf.info())
-    return
+            modeling_gdf.to_parquet(f"sightings/{filename}", index=False)
+
     print("Starting Visualization.....")
     visualize(modeling_gdf)
 
@@ -66,7 +69,15 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     # spatial join sightings to nearest road
     sightings_with_roads = gpd.sjoin_nearest(
         sightings_projected,
-        road_network_projected[["fclass", "speed_zone", "traffic_proxy", "geometry"]],
+        road_network_projected[
+            [
+                "road_segment_id",
+                "road_class",
+                "speed_limit",
+                "traffic_proxy",
+                "geometry",
+            ]
+        ],
         how="left",
         distance_col="distance_to_road",
     )
