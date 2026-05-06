@@ -50,7 +50,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
 
     print("Loading state boundaries from the parquet file....")
     # loading the state data
-    states_projected = gpd.read_parquet("road_data/states_projected.parquet")
+    states_projected = gpd.read_parquet("data/states_projected.parquet")
     sightings_projected = gpd.sjoin(
         sightings_projected, states_projected, how="inner", predicate="within"
     )
@@ -63,7 +63,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
 
     print("Loading road network from the parquet file....")
     # loading the roads data
-    road_network_projected = gpd.read_parquet("road_data/australia_projected.parquet")
+    road_network_projected = gpd.read_parquet("data/australia_projected.parquet")
 
     print("Calculating distance to the nearest road....")
     # spatial join sightings to nearest road
@@ -94,7 +94,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
 
     print("Loading road network with buffer from the parquet file....")
     # loading the roads data
-    roads_with_buffer = gpd.read_parquet("road_data/australia_projected_buffer.parquet")
+    roads_with_buffer = gpd.read_parquet("data/australia_projected_buffer.parquet")
 
     print("Finding sightings within 500m of a road....")
     # finding sightings within 500m of a road
@@ -143,9 +143,9 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
 def visualize(modeling_gdf: gpd.GeoDataFrame):
     print("Loading the state data....")
     # loading the gdfs for the background
-    states_projected = gpd.read_parquet("road_data/states_projected.parquet")
-    roads_projected = gpd.read_parquet("road_data/australia_projected.parquet")
-    roads_with_buffer = gpd.read_parquet("road_data/australia_projected_buffer.parquet")
+    states_projected = gpd.read_parquet("data/states_projected.parquet")
+    roads_projected = gpd.read_parquet("data/australia_projected.parquet")
+    roads_with_buffer = gpd.read_parquet("data/australia_projected_buffer.parquet")
 
     # setting the background theme
     sns.set_theme(style="whitegrid", palette="deep")

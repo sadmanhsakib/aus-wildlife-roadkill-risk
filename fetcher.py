@@ -349,7 +349,7 @@ def prepare_road_network():
 
     # loading the roads data
     road_network = gpd.read_file(
-        "road_data/raw/australia.gpkg",
+        "data/raw/australia.gpkg",
         layer="gis_osm_roads_free",
         columns=["osm_id", "name", "fclass", "geometry"],
     )
@@ -397,7 +397,7 @@ def prepare_road_network():
     gc.collect()
 
     road_network_projected.to_parquet(
-        "road_data/australia_projected.parquet", index=False
+        "data/australia_projected.parquet", index=False
     )
     print("✅Road network parsed and saved to australia_projected.parquet")
 
@@ -408,7 +408,7 @@ def prepare_road_network():
     ).reset_index(drop=True)
 
     roads_with_buffer.to_parquet(
-        "road_data/australia_projected_buffer.parquet", index=False
+        "data/australia_projected_buffer.parquet", index=False
     )
     print("✅Road network parsed and saved to australia_projected_buffer.parquet")
 
@@ -418,7 +418,7 @@ def prepare_state_network():
 
     # loading the whole map
     states = gpd.read_file(
-        "road_data/raw/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
+        "data/raw/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
     )
 
     # filtering to just the main states
@@ -429,7 +429,7 @@ def prepare_state_network():
     del states
     gc.collect()
 
-    states_projected.to_parquet("road_data/states_projected.parquet", index=False)
+    states_projected.to_parquet("data/states_projected.parquet", index=False)
     print("✅State network parsed and saved to states_projected.parquet")
 
 
