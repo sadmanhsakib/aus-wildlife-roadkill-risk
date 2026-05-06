@@ -1,9 +1,13 @@
 import time, gc, os
-import matplotlib.pyplot as plt
-import geopandas as gpd
+import rasterio
+import numpy as np
 import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
 import seaborn as sns
+from rasterio.sample import sample_gen
 import fetcher
+
 
 LATITUDE_COLUMN = "latitude"
 LONGITUDE_COLUMN = "longitude"
@@ -18,8 +22,6 @@ MAIN_STATES = (
     "Australian Capital Territory",
     "Northern Territory",
 )
-
-sightings_df = pd.read_parquet("sightings.parquet")
 
 
 def main():
@@ -52,14 +54,23 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     # loading the state data
     states_projected = gpd.read_parquet("data/states_projected.parquet")
     sightings_projected = gpd.sjoin(
-        sightings_projected, states_projected, how="inner", predicate="within"
+        sightings_projected,
+        states_projected,
+        how="inner",
+        predicate="within",
     )
     # freeing up memory space
     del states_projected
     gc.collect()
 
+    # dropping unnecessary column
     sightings_projected = sightings_projected.drop(columns=["index_right"])
+
+    # replacing the state names with state codes
     sightings_projected["state"] = sightings_projected["state"].map(fetcher.STATE_CODES)
+
+    # getting the vegetation column
+    sightings_projected = sample_raster_at_points(sightings_projected, col_name="ndvi")
 
     print("Loading road network from the parquet file....")
     # loading the roads data
@@ -67,7 +78,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
 
     print("Calculating distance to the nearest road....")
     # spatial join sightings to nearest road
-    sightings_with_roads = gpd.sjoin_nearest(
+    sightings_with_road_data = gpd.sjoin_nearest(
         sightings_projected,
         road_network_projected[
             [
@@ -85,12 +96,11 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     del sightings_projected, road_network_projected
     gc.collect()
     # dropping the duplicate sightings (in case of multiple nearest roads at same distance)
-    sightings_with_roads = sightings_with_roads[
-        ~sightings_with_roads.index.duplicated(keep="first")
+    sightings_with_road_data = sightings_with_road_data[
+        ~sightings_with_road_data.index.duplicated(keep="first")
     ]
-
-    # drop unnecessary column
-    sightings_with_roads = sightings_with_roads.drop(columns=["index_right"])
+    # dropping unnecessary column
+    sightings_with_road_data = sightings_with_road_data.drop(columns=["index_right"])
 
     print("Loading road network with buffer from the parquet file....")
     # loading the roads data
@@ -99,7 +109,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     print("Finding sightings within 500m of a road....")
     # finding sightings within 500m of a road
     high_risk_sightings = gpd.sjoin(
-        sightings_with_roads, roads_with_buffer, how="inner", predicate="within"
+        sightings_with_road_data, roads_with_buffer, how="inner", predicate="within"
     )
     # freeing up memory space
     del roads_with_buffer
@@ -111,11 +121,11 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     ]
 
     # finding sightings not within 500m of a road
-    low_risk_sightings = sightings_with_roads[
-        ~sightings_with_roads.index.isin(high_risk_sightings.index)
+    low_risk_sightings = sightings_with_road_data[
+        ~sightings_with_road_data.index.isin(high_risk_sightings.index)
     ]
     # freeing up memory space
-    del sightings_with_roads
+    del sightings_with_road_data
     gc.collect()
 
     # adding risk labels
@@ -138,6 +148,31 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     )
 
     return modeling_gdf
+
+
+def sample_raster_at_points(df, col_name):
+    """Samples a GeoTIFF raster at each lat/lon point in df."""
+
+    # getting the coordinates
+    coords = list(zip(df["longitude"], df["latitude"]))
+
+    with rasterio.open("data/vegetation_median.tif") as src:
+        # Reproject coords if raster CRS differs from WGS84
+        if src.crs.to_epsg() != 4326:
+            from pyproj import Transformer
+
+            transformer = Transformer.from_crs(
+                "EPSG:4326", src.crs.to_epsg(), always_xy=True
+            )
+            coords = [transformer.transform(lon, lat) for lon, lat in coords]
+
+        print("Fetching vegetation data for each coordinate....")
+        sampled = list(sample_gen(src, coords, indexes=1))
+
+    values = np.array(sampled, dtype=float)
+
+    df[col_name] = values
+    return df
 
 
 def visualize(modeling_gdf: gpd.GeoDataFrame):

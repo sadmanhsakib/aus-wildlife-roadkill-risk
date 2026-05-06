@@ -1,5 +1,6 @@
-import os, time, gc
-import httpx, asyncio
+import os, time, gc, glob
+import httpx, asyncio, rasterio
+import numpy as np
 import pandas as pd
 import geopandas as gpd
 
@@ -78,6 +79,8 @@ def main():
     files = [os.path.join("sightings", file) for file in files]
 
     merge("sightings.parquet", files, shouldDelete=False)
+
+    prepare_nvdi()
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
@@ -396,9 +399,7 @@ def prepare_road_network():
     del road_network
     gc.collect()
 
-    road_network_projected.to_parquet(
-        "data/australia_projected.parquet", index=False
-    )
+    road_network_projected.to_parquet("data/australia_projected.parquet", index=False)
     print("✅Road network parsed and saved to australia_projected.parquet")
 
     # adding buffer of 500m around the roads
@@ -407,9 +408,7 @@ def prepare_road_network():
         geometry=road_network_projected.buffer(500), crs="EPSG:32754"
     ).reset_index(drop=True)
 
-    roads_with_buffer.to_parquet(
-        "data/australia_projected_buffer.parquet", index=False
-    )
+    roads_with_buffer.to_parquet("data/australia_projected_buffer.parquet", index=False)
     print("✅Road network parsed and saved to australia_projected_buffer.parquet")
 
 
@@ -431,6 +430,72 @@ def prepare_state_network():
 
     states_projected.to_parquet("data/states_projected.parquet", index=False)
     print("✅State network parsed and saved to states_projected.parquet")
+
+
+def prepare_nvdi():
+    """
+    Takes all monthly NDVI GeoTIFFs from AppEEARS and
+    produces a single median composite raster using windowed processing
+    to avoid memory errors.
+    """
+    print("Merging the .tif files (memory-efficient block-wise processing)...")
+
+    tif_folder = "data/raw/vegetation/"
+    output_path = "data/vegetation_median.tif"
+
+    # finding and storing the file_paths of all .tif files
+    tif_files = sorted(glob.glob(os.path.join(tif_folder, "*.tif")))
+    if not tif_files:
+        print("No .tif files found in vegetation folder.")
+        return
+
+    print(f"Found {len(tif_files)} monthly files. ")
+
+    # Open all source files
+    srcs = [rasterio.open(f) for f in tif_files]
+
+    try:
+        # Use metadata from first file
+        meta = srcs[0].meta.copy()
+        meta.update(dtype="float32", count=1, nodata=np.nan)
+
+        # Create output file
+        with rasterio.open(output_path, "w", **meta) as dst:
+            # Iterate through the destination file in blocks (windows)
+            windows = [window for _, window in dst.block_windows(1)]
+            num_windows = len(windows)
+
+            for i, window in enumerate(windows):
+                if i % 10 == 0:
+                    print(f"Processing block {i+1}/{num_windows}...")
+
+                block_arrays = []
+                for src in srcs:
+                    # Read the current window from each source file
+                    data = src.read(1, window=window).astype(np.float32)
+                    data[data == -28672] = np.nan  # MODIS nodata value
+                    data = data * 0.0001  # MODIS scale factor
+                    block_arrays.append(data)
+
+                # Stack the small blocks (num_files, block_height, block_width)
+                stack = np.stack(block_arrays, axis=0)
+
+                # Compute median for this block ignoring NaNs
+                block_median = np.nanmedian(stack, axis=0)
+
+                # Write results to the output file window
+                dst.write(block_median.astype(np.float32), 1, window=window)
+
+                # Explicitly clear block memory
+                del stack, block_arrays
+                gc.collect()
+
+    finally:
+        # Close all source files
+        for src in srcs:
+            src.close()
+
+    print(f"✅ Saved median composite → {output_path}")
 
 
 if __name__ == "__main__":
