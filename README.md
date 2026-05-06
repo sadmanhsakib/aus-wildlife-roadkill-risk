@@ -82,7 +82,7 @@ Raw monthly NDVI GeoTIFF files (from **NASA AppEEARS / MODIS MOD13A3**) are proc
 - All monthly `.tif` files in `data/raw/vegetation/` are discovered and opened
 - A **memory-efficient block-wise (windowed) median composite** is computed — reading only one raster tile at a time per block to avoid RAM exhaustion from loading 100+ large arrays simultaneously
 - MODIS nodata values (`-28672`) are masked and the MODIS scale factor (`× 0.0001`) is applied
-- The result is saved as `data/vegetation_median.tif` — a single float32 raster representing long-run median NDVI across Australia
+- The result is saved as `data/ndvi_median_australia.tif` — a single float32 raster representing long-run median NDVI across Australia
 - Each sighting's coordinates are then used to **sample the median NDVI raster**, adding an `ndvi` column to the dataset
 
 #### Season & Peak Season ✅
@@ -150,7 +150,7 @@ Plots the full spatial analysis on a single figure:
 ```
 ├── fetcher.py              # Data ingestion (GBIF & ALA APIs) + cleaning + merging
 │                           #   + prepare_road_network(), prepare_state_network()
-│                           #   + prepare_nvdi() (memory-efficient NDVI composite)
+│                           #   + build_ndvi_median_composite() (memory-efficient NDVI composite)
 │                           #   + enrich()  (season + is_peak_season columns)
 ├── analyzer.py             # Spatial risk analysis + NDVI sampling + visualisation
 ├── backup/                 # Per-species cleaned Parquet files (gitignored)
@@ -166,7 +166,7 @@ Plots the full spatial analysis on a single figure:
 │   ├── australia_projected.parquet    # Processed road network in EPSG:32754 (gitignored)
 │   ├── australia_projected_buffer.parquet  # 500m road buffer (gitignored)
 │   ├── states_projected.parquet       # State boundaries in EPSG:32754 (gitignored)
-│   └── vegetation_median.tif          # Median NDVI composite raster (gitignored)
+│   └── ndvi_median_australia.tif          # Median NDVI composite raster (gitignored)
 ├── blueprint.md            # Full technical blueprint & architecture plan
 ├── test.py                 # Scratch/testing utilities (gitignored)
 ├── .gitignore              # Git ignore rules

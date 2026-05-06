@@ -28,12 +28,12 @@ def main():
     for filename in os.listdir("backup"):
         if filename.endswith(".parquet"):
             df = pd.read_parquet(f"backup/{filename}")
-            modeling_gdf = prepare_spatial_data(df)
+            sightings_gdf = prepare_spatial_data(df)
 
-            modeling_gdf.to_parquet(f"sightings/{filename}", index=False)
+            sightings_gdf.to_parquet(f"sightings/{filename}", index=False)
 
     print("Starting Visualization.....")
-    visualize(modeling_gdf)
+    visualize(None)
 
 
 def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
@@ -72,6 +72,9 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     # getting the vegetation column
     sightings_projected = sample_raster_at_points(sightings_projected, col_name="ndvi")
 
+    # dropping data with wrong vegetation data
+    sightings_projected = sightings_projected[sightings_projected["ndvi"] <= 1.0]
+
     print("Loading road network from the parquet file....")
     # loading the roads data
     road_network_projected = gpd.read_parquet("data/australia_projected.parquet")
@@ -102,52 +105,18 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     # dropping unnecessary column
     sightings_with_road_data = sightings_with_road_data.drop(columns=["index_right"])
 
-    print("Loading road network with buffer from the parquet file....")
-    # loading the roads data
-    roads_with_buffer = gpd.read_parquet("data/australia_projected_buffer.parquet")
-
-    print("Finding sightings within 500m of a road....")
-    # finding sightings within 500m of a road
-    high_risk_sightings = gpd.sjoin(
-        sightings_with_road_data, roads_with_buffer, how="inner", predicate="within"
-    )
-    # freeing up memory space
-    del roads_with_buffer
-    gc.collect()
-
-    # dropping the duplicate high risk sightings that were in contact of multiple roads
-    high_risk_sightings = high_risk_sightings[
-        ~high_risk_sightings.index.duplicated(keep="first")
-    ]
-
-    # finding sightings not within 500m of a road
-    low_risk_sightings = sightings_with_road_data[
-        ~sightings_with_road_data.index.isin(high_risk_sightings.index)
-    ]
-    # freeing up memory space
-    del sightings_with_road_data
-    gc.collect()
-
-    # adding risk labels
-    high_risk_sightings["risk_label"] = 1
-    low_risk_sightings["risk_label"] = 0
-
-    # concatenating the two dataframes
-    modeling_gdf = pd.concat(
-        [high_risk_sightings, low_risk_sightings], ignore_index=True
-    )
-    # freeing up memory space
-    del high_risk_sightings, low_risk_sightings
-    gc.collect()
-
-    modeling_gdf = modeling_gdf.drop(columns=["index_right"])
-
     # rounding the distance
-    modeling_gdf["distance_to_road"] = round(
-        modeling_gdf["distance_to_road"].astype(float), 2
+    sightings_with_road_data["distance_to_road"] = round(
+        sightings_with_road_data["distance_to_road"].astype(float), 2
     )
 
-    return modeling_gdf
+    print("Adding risk labels....")
+    # adding risk labels
+    sightings_with_road_data["risk_label"] = sightings_with_road_data[
+        "distance_to_road"
+    ].apply(lambda x: 1 if x <= 500 else 0)
+
+    return sightings_with_road_data
 
 
 def sample_raster_at_points(df, col_name):
@@ -156,7 +125,7 @@ def sample_raster_at_points(df, col_name):
     # getting the coordinates
     coords = list(zip(df["longitude"], df["latitude"]))
 
-    with rasterio.open("data/vegetation_median.tif") as src:
+    with rasterio.open("data/ndvi_median_australia.tif") as src:
         # Reproject coords if raster CRS differs from WGS84
         if src.crs.to_epsg() != 4326:
             from pyproj import Transformer
@@ -175,12 +144,24 @@ def sample_raster_at_points(df, col_name):
     return df
 
 
-def visualize(modeling_gdf: gpd.GeoDataFrame):
-    print("Loading the state data....")
+def visualize(df: gpd.GeoDataFrame):
+    if not df:
+        df = pd.read_parquet("sightings.parquet")
+
+        # converting pandas DataFrame to GeoDataFrame
+        gdf = gpd.GeoDataFrame(
+            df,
+            # creating the geometry column
+            # longitude is X and latitude is Y
+            geometry=gpd.points_from_xy(df[LONGITUDE_COLUMN], df[LATITUDE_COLUMN]),
+            crs="EPSG:4326",
+        )
+        gdf = gdf.to_crs("EPSG:32754")
+
+    print("Loading the .parquet files....")
     # loading the gdfs for the background
     states_projected = gpd.read_parquet("data/states_projected.parquet")
     roads_projected = gpd.read_parquet("data/australia_projected.parquet")
-    roads_with_buffer = gpd.read_parquet("data/australia_projected_buffer.parquet")
 
     # setting the background theme
     sns.set_theme(style="whitegrid", palette="deep")
@@ -189,14 +170,15 @@ def visualize(modeling_gdf: gpd.GeoDataFrame):
     fig, ax = plt.subplots(figsize=(12, 10))
 
     # plotting the whole map
+    print("Plotting the State Map....")
     states_projected.plot(ax=ax, color="green", alpha=0.2)
 
     # plotting the roads and roads with buffer
+    print("Plotting the roads....")
     roads_projected.plot(ax=ax, color="black", linewidth=0.5, alpha=0.5)
-    roads_with_buffer.plot(ax=ax, color="grey", alpha=0.2)
 
     # creating a copy of the modeling dataframe
-    sightings_plot_data = modeling_gdf.copy()
+    sightings_plot_data = gdf.copy()
 
     # adding x and y coordinates
     sightings_plot_data["x"] = sightings_plot_data.geometry.x
@@ -208,6 +190,7 @@ def visualize(modeling_gdf: gpd.GeoDataFrame):
     )
 
     # plotting the sightings using seaborn for styled scatter points
+    print("Plotting the sightings....")
     sns.scatterplot(
         data=sightings_plot_data,
         x="x",

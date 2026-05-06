@@ -80,8 +80,6 @@ def main():
 
     merge("sightings.parquet", files, shouldDelete=False)
 
-    prepare_nvdi()
-
 
 async def get_gbif_data(species_key: int, state: str) -> str:
     offset = 0
@@ -401,16 +399,7 @@ def prepare_road_network():
 
     road_network_projected.to_parquet("data/australia_projected.parquet", index=False)
     print("✅Road network parsed and saved to australia_projected.parquet")
-
-    # adding buffer of 500m around the roads
-    print("Adding buffer of 500m around the roads....")
-    roads_with_buffer = gpd.GeoDataFrame(
-        geometry=road_network_projected.buffer(500), crs="EPSG:32754"
-    ).reset_index(drop=True)
-
-    roads_with_buffer.to_parquet("data/australia_projected_buffer.parquet", index=False)
-    print("✅Road network parsed and saved to australia_projected_buffer.parquet")
-
+    
 
 def prepare_state_network():
     print("Loading the state data...")
@@ -432,7 +421,7 @@ def prepare_state_network():
     print("✅State network parsed and saved to states_projected.parquet")
 
 
-def prepare_nvdi():
+def build_ndvi_median_composite():
     """
     Takes all monthly NDVI GeoTIFFs from AppEEARS and
     produces a single median composite raster using windowed processing
@@ -441,7 +430,7 @@ def prepare_nvdi():
     print("Merging the .tif files (memory-efficient block-wise processing)...")
 
     tif_folder = "data/raw/vegetation/"
-    output_path = "data/vegetation_median.tif"
+    output_path = "data/ndvi_median_australia.tif"
 
     # finding and storing the file_paths of all .tif files
     tif_files = sorted(glob.glob(os.path.join(tif_folder, "*.tif")))
