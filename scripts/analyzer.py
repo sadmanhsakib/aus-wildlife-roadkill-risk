@@ -7,7 +7,6 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from rasterio.sample import sample_gen
-import fetcher
 
 
 LATITUDE_COLUMN = "latitude"
@@ -26,6 +25,7 @@ MAIN_STATES = (
 
 
 def main():
+    return
     p = "backup/"
 
     for filename in os.listdir(p):
@@ -57,7 +57,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
 
     print("Loading state boundaries from the parquet file....")
     # loading the state data
-    states_projected = gpd.read_parquet("data/states_projected.parquet")
+    states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
     sightings_projected = gpd.sjoin(
         sightings_projected,
         states_projected,
@@ -82,7 +82,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
 
     print("Loading road network from the parquet file....")
     # loading the roads data
-    road_network_projected = gpd.read_parquet("data/australia_projected.parquet")
+    road_network_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
 
     print("Calculating distance to the nearest road....")
     # spatial join sightings to nearest road
@@ -130,7 +130,7 @@ def sample_raster_at_points(df, col_name):
     # getting the coordinates
     coords = list(zip(df["longitude"], df["latitude"]))
 
-    with rasterio.open("data/ndvi_median_australia.tif") as src:
+    with rasterio.open("data/processed/ndvi_median_australia.tif") as src:
         # Reproject coords if raster CRS differs from WGS84
         if src.crs.to_epsg() != 4326:
             from pyproj import Transformer
@@ -165,8 +165,8 @@ def visualize(df: gpd.GeoDataFrame):
 
     print("Loading the .parquet files....")
     # loading the gdfs for the background
-    states_projected = gpd.read_parquet("data/states_projected.parquet")
-    roads_projected = gpd.read_parquet("data/australia_projected.parquet")
+    states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
+    roads_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
 
     # setting the background theme
     sns.set_theme(style="whitegrid", palette="deep")

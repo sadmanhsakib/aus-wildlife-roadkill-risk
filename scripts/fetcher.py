@@ -430,7 +430,9 @@ def prepare_road_network():
     del road_network
     gc.collect()
 
-    road_network_projected.to_parquet("data/australia_projected.parquet", index=False)
+    road_network_projected.to_parquet(
+        "data/processed/australia_projected.parquet", index=False
+    )
     print("✅Road network parsed and saved to australia_projected.parquet")
 
 
@@ -450,7 +452,7 @@ def prepare_state_network():
     del states
     gc.collect()
 
-    states_projected.to_parquet("data/states_projected.parquet", index=False)
+    states_projected.to_parquet("data/processed/states_projected.parquet", index=False)
     print("✅State network parsed and saved to states_projected.parquet")
 
 
@@ -463,7 +465,7 @@ def build_ndvi_median_composite():
     print("Merging the .tif files (memory-efficient block-wise processing)...")
 
     tif_folder = "data/raw/vegetation/"
-    output_path = "data/ndvi_median_australia.tif"
+    output_path = "data/processed/ndvi_median_australia.tif"
 
     # finding and storing the file_paths of all .tif files
     tif_files = sorted(glob.glob(os.path.join(tif_folder, "*.tif")))
