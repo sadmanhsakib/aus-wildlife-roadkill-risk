@@ -74,17 +74,17 @@ PEAK_SEASON_MAP = {
 }
 
 BODY_MASS_WEIGHT = {
-    "Osphranter rufus": 1.00,             # Red kangaroo       ~85kg
-    "Macropus giganteus": 0.90,           # Eastern grey       ~66kg
-    "Wallabia bicolor": 0.65,             # Swamp wallaby      ~20kg
-    "Notamacropus rufogriseus": 0.60,     # Red-necked wallaby ~17kg
-    "Vombatus ursinus": 0.70,             # Common wombat      ~35kg
-    "Phascolarctos cinereus": 0.55,       # Koala              ~12kg
-    "Trichosurus vulpecula": 0.30,        # Brushtail possum   ~4kg
-    "Pseudocheirus peregrinus": 0.25,     # Ringtail possum    ~1kg
-    "Isoodon obesulus": 0.35,             # S. brown bandicoot ~1.5kg
-    "Tachyglossus aculeatus": 0.40,       # Echidna            ~6kg
-    "Ornithorhynchus anatinus": 0.45,     # Platypus           ~2kg
+    "Osphranter rufus": 1.00,  # Red kangaroo       ~85kg
+    "Macropus giganteus": 0.90,  # Eastern grey       ~66kg
+    "Wallabia bicolor": 0.65,  # Swamp wallaby      ~20kg
+    "Notamacropus rufogriseus": 0.60,  # Red-necked wallaby ~17kg
+    "Vombatus ursinus": 0.70,  # Common wombat      ~35kg
+    "Phascolarctos cinereus": 0.55,  # Koala              ~12kg
+    "Trichosurus vulpecula": 0.30,  # Brushtail possum   ~4kg
+    "Pseudocheirus peregrinus": 0.25,  # Ringtail possum    ~1kg
+    "Isoodon obesulus": 0.35,  # S. brown bandicoot ~1.5kg
+    "Tachyglossus aculeatus": 0.40,  # Echidna            ~6kg
+    "Ornithorhynchus anatinus": 0.45,  # Platypus           ~2kg
 }
 
 NOCTURNAL = {
@@ -100,6 +100,7 @@ NOCTURNAL = {
     "Tachyglossus aculeatus": 0.30,
     "Ornithorhynchus anatinus": 0.80,
 }
+
 
 def main():
     files = os.listdir("sightings")
@@ -363,21 +364,16 @@ def enrich(path: str):
 
         # adding the season column
         df["season"] = df["month"].map(SEASON_MAP)
-        # adding the peak_season column
-        df["is_peak_season"] = df.apply(
-            lambda x: 1 if x["month"] in PEAK_SEASON_MAP[x["species"]] else 0, axis=1
-        )
-
-        # adding the body mass weight column
+        # Adding species-specific weights
         df["body_mass_weight"] = df["species"].map(BODY_MASS_WEIGHT)
-        # adding the nocturnal column
         df["nocturnal_weight"] = df["species"].map(NOCTURNAL)
-        # adding the peak season weight
-        df["peak_w"] = df["is_peak_season"].map({True: 1.3, False: 1.0})
-        
-        # dropping unnecessary columns
-        df = df.drop(columns=["is_peak_season"])
-        
+
+        # Calculate peak season weight
+        df["peak_season_weight"] = [
+            1.3 if m in PEAK_SEASON_MAP.get(s, []) else 1.0
+            for s, m in zip(df["species"], df["month"])
+        ]
+
         df.to_parquet(file_name, index=False)
         print(f"{file_name} enriched successfully. ")
 

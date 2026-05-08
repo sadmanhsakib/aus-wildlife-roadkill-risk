@@ -28,7 +28,7 @@ Currently tracking **11 native species**:
 |---|-------|--------|
 | 1 | **Data Ingestion** (ALA + GBIF) | ✅ Done |
 | 2 | **Data Cleaning + GeoPandas** | ✅ Done |
-| 3 | **Spatial Risk Analysis** (GeoPandas + Shapely) | ✅ Done |
+| 3 | **Spatial Risk Analysis** (GeoPandas) | ✅ Done |
 | 4 | **Feature Engineering** (NDVI + road features + seasonality) | ✅ Done |
 | 5 | **Model Training** (Risk classification) | 🔄 In Progress |
 | 6 | **Map Visualization** (Folium) | ⏳ Pending |
@@ -44,6 +44,12 @@ Pulls wildlife occurrence records from two sources:
 - **[GBIF](https://www.gbif.org/)** — Global Biodiversity Information Facility (paginated REST API, up to 10,000+ records per species)
 - **[ALA](https://www.ala.org.au/)** — Atlas of Living Australia (paginated REST API with field selection)
 
+Prepares the raw downloaded road network, state boundaries and vegetation data:
+
+- **[GeoFabrik.de](https://download.geofabrik.de/australia-oceania/australia.html)** — Australian road network (OSM) -> `prepare_road_network()`
+- **[Australian Bureau of Statistics (ABS)](https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs-edition-3/jul2021-jun2026/access-and-downloads/digital-boundary-files)** — State boundaries -> `prepare_state_network()`
+- **[NASA AppEEARS](https://appeears.earthdatacloud.nasa.gov/)** — Vegetation data (NDVI) -> `build_ndvi_median_composite()`
+
 Both pipelines handle pagination, rate-limiting, and export raw results to per-species CSV files before processing.
 
 ### 2. Data Cleaning ✅
@@ -54,6 +60,7 @@ Both pipelines handle pagination, rate-limiting, and export raw results to per-s
 - Removes sightings older than 2020
 - Deduplicates on `(latitude, longitude, year, month)` per file
 - Converts per-species CSVs to **Parquet** format and stores them in `backup/`
+- Enriches the data with `season`, `body_mass_weight`, `nocturnal_weight`, `peak_season_weight`
 - Final global deduplication on `(species, month, year, latitude, longitude)` when merging
 
 ### 3. Spatial Analysis ✅
