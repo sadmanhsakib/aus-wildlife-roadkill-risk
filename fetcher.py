@@ -103,8 +103,8 @@ NOCTURNAL = {
 
 
 def main():
-    files = os.listdir("sightings")
-    files = [os.path.join("sightings", file) for file in files]
+    files = os.listdir("sightings/")
+    files = [os.path.join("sightings/", file) for file in files]
 
     merge("sightings.parquet", files, shouldDelete=False)
 

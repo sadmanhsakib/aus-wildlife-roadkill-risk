@@ -1,3 +1,4 @@
+import fetcher
 import time, gc, os
 import rasterio
 import numpy as np
@@ -25,13 +26,17 @@ MAIN_STATES = (
 
 
 def main():
-    for filename in os.listdir("backup"):
+    p = "backup/"
+
+    for filename in os.listdir(p):
         if filename.endswith(".parquet"):
-            df = pd.read_parquet(f"backup/{filename}")
+            df = pd.read_parquet(f"{p}{filename}")
             sightings_gdf = prepare_spatial_data(df)
 
             sightings_gdf.to_parquet(f"sightings/{filename}", index=False)
-
+            print(f"✅{filename} processed successfully.")
+    fetcher.main()
+    return
     print("Starting Visualization.....")
     visualize(None)
 
