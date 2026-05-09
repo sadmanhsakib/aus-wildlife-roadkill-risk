@@ -1,5 +1,5 @@
 import os, time, gc, glob
-import httpx, asyncio, rasterio
+import httpx, asyncio, rasterio, requests
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -103,6 +103,8 @@ NOCTURNAL = {
 
 
 def main():
+    get_ala_data("Macropus giganteus", "New South Wales")
+    return
     files = os.listdir("sightings/")
     files = [os.path.join("sightings/", file) for file in files]
 
@@ -110,6 +112,7 @@ def main():
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
+    """ Fetches data from GBIF for a given species key and state. """
     offset = 0
     results = []
 
@@ -169,57 +172,52 @@ async def get_gbif_data(species_key: int, state: str) -> str:
         return None
 
 
-async def get_ala_data(species_scientific_name: str, state: str) -> str:
+def get_ala_data(species_scientific_name: str, state: str) -> str:
+    """ Fetches data from ALA for a given species scientific name and state. """
     offset = 0
     results = []
 
-    async with httpx.AsyncClient() as client:
-        while True:
-            params = {
-                "q": species_scientific_name,
-                "fq": [
-                    "country:Australia",
-                    "year:[2020 TO 2026]",
-                    f"stateProvince:{state}",
-                ],
-                "pageSize": 1000,  # records per page (max 1000)
-                "startIndex": offset,  # for pagination
-                "fl": "scientificName,month,year,decimalLatitude,decimalLongitude",  # fields to return
-            }
-            headers = {
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            }
+    while True:
+        params = {
+            "q": species_scientific_name,
+            "fq": [
+                "country:Australia",
+                "year:[2020 TO 2026]",
+                f"stateProvince:{state}",
+            ],
+            "pageSize": 1000,  # records per page (max 1000)
+            "startIndex": offset,  # for pagination
+            "fl": "scientificName,month,year,decimalLatitude,decimalLongitude",  # fields to return
+        }
+        headers = {"Accept": "application/json"}
 
-            # sending the requests
-            response = await client.get(
-                ALA_URL, params=params, headers=headers, follow_redirects=True
-            )
+        response = requests.get(ALA_URL, params=params, headers=headers)
 
-            # checking if the request was successful
-            if response.status_code == 200:
-                data = response.json()
-                results.extend(data["occurrences"])
 
-                print(f"Data Pulled: {offset}")
-                try:
-                    # check if we've reached the end of the dataset to avoid data loss
-                    total_records = data.get("totalRecords", 0)
-                    if not data.get("occurrences") or offset + 1000 >= total_records:
-                        break
-                    # temporary break for testing purposes
-                    elif offset > 10:
-                        break
-                    offset += 1000
-                except (KeyError, TypeError):
-                    # catch potential missing fields or invalid types to prevent infinite loops
+        # checking if the request was successful
+        if response.status_code == 200:
+            data = response.json()
+            results.extend(data["occurrences"])
+
+            print(f"Data Pulled: {offset}")
+            try:
+                # check if we've reached the end of the dataset to avoid data loss
+                total_records = data.get("totalRecords", 0)
+                if not data.get("occurrences") or offset + 1000 >= total_records:
                     break
-            else:
-                print(f"Error: {response.status_code}")
-                print(response.text)
-                return 1
-            # for avoiding HTTP 429 error
-            await asyncio.sleep(1.0)
+                # temporary break for testing purposes
+                elif offset > 10:
+                    break
+                offset += 1000
+            except (KeyError, TypeError):
+                # catch potential missing fields or invalid types to prevent infinite loops
+                break
+        else:
+            print(f"Error: {response.status_code}")
+            print(response.text)
+            return 1
+        # for avoiding HTTP 429 error
+        time.sleep(1.0)
 
     if results:
         file_name = f"{results[0]['scientificName'].lower().replace(' ', '_')}_sightings_ala.csv"
@@ -236,6 +234,11 @@ async def get_ala_data(species_scientific_name: str, state: str) -> str:
 
 
 def clean_DataFrame(file_name: str):
+    """ Cleans the data by 
+        1. removing rows with missing values
+        2. removing older sighting data
+        3. removing sightings outside Australia
+        4. removing duplicates """
     column_schema = [
         "species",
         "month",
@@ -291,6 +294,7 @@ def clean_DataFrame(file_name: str):
 
 
 def merge(new_file_name: str, file_names: list, shouldDelete=True):
+    """ Merges multiple .csv or .parquet files into a single .csv or .parquet file. """
     df_list = []
 
     # loading all DataFrames in a single list
@@ -323,6 +327,7 @@ def merge(new_file_name: str, file_names: list, shouldDelete=True):
 
 
 def to_parquet(path: str):
+    """ Converts all the .csv files in a directory to .parquet files. """
     file_names = []
 
     try:
@@ -346,6 +351,7 @@ def to_parquet(path: str):
 
 
 def enrich(path: str):
+    """ Enriches the data with season, body mass weight, nocturnal weight, and peak season weight. """
     file_names = []
 
     try:
@@ -379,6 +385,12 @@ def enrich(path: str):
 
 
 def prepare_road_network():
+    """ Prepares the road network by 
+        1. loading the road data
+        2. filtering to relevant roads
+        3. adding speed limit and traffic proxy
+        4. renaming the columns
+        5. converting it to a projected system. """
     print("Loading the road network...")
 
     # loading the roads data
@@ -437,6 +449,11 @@ def prepare_road_network():
 
 
 def prepare_state_network():
+    """ Prepares the state network by 
+        1. loading the raw state data
+        2. filtering to main states
+        3. renaming the column
+        4. converting it to a projected system. """
     print("Loading the state data...")
 
     # loading the whole map

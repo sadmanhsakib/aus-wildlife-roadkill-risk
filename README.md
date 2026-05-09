@@ -4,11 +4,13 @@
 
 Built on 413,000+ biodiversity occurrence records across 11 native species, the platform combines ecological presence data, road network attributes, NDVI vegetation rasters, and a spatially-lagged proxy label to train an XGBoost risk regression model with full SHAP explainability. Output is served through a live Streamlit application.
 
+The primary objective is to transform static, historically unreliable sign placement strategies into a dynamically updated, statistically rigorous decision-support tool. By modeling not just where animals have been seen, but the *ecological and infrastructural conditions* that promote a collision, the system identifies proactive and evidence-backed intervention zones.
+
 ---
 
 ## Why This Matters
 
-Wildlife-vehicle collisions kill more than **[10 million animals](https://findanexpert.unimelb.edu.au/news/79342-10-million-animals-die-on-our-roads-each-year.-here%E2%80%99s-what-works-(and-what-doesn%E2%80%99t)-to-cut-the-toll)** annually and pose serious road safety risks. Current signage placement is largely static and not evidence-backed. This project provides road authorities with a **data-driven, reproducible pipeline** — from raw occurrence records to a deployable GeoJSON of prioritised sign locations — using 100% open data and open-source tooling.
+Wildlife-vehicle collisions kill more than **[10 million animals](https://findanexpert.unimelb.edu.au/news/79342-10-million-animals-die-on-our-roads-each-year.-here%E2%80%99s-what-works-(and-what-doesn%E2%80%99t)-to-cut-the-toll)** annually in Australia alone and pose serious road safety risks. Current signage placement is largely static and not evidence-backed. This project provides road authorities with a **data-driven, reproducible pipeline** — from raw occurrence records to a deployable GeoJSON of prioritised sign locations — using 100% open data and open-source tooling.
 
 ---
 
@@ -50,16 +52,16 @@ NDVI rasters (NASA MODIS MOD13A3)         → vegetation context
 
 ## Current Status
 
-| Phase | Description | Status |
-|---|---|---|
-| 1 | Data ingestion (ALA + GBIF) | ✅ Done |
-| 2 | Data cleaning + deduplication | ✅ Done |
-| 3 | Spatial join to road network + state boundaries | ✅ Done |
-| 4 | Feature engineering (NDVI · season · ecological weights) | ✅ Done |
-| 5 | Proxy label construction + model training (XGBoost + SHAP) | 🔄 In Progress |
-| 6 | Sign placement engine | ⏳ Pending |
-| 7 | Streamlit + Folium application | ⏳ Pending |
-| 8 | Model card + METHODOLOGY.md + screen recording | ⏳ Pending |
+| Phase | Description | Key Details | Status |
+|---|---|---|---|
+| 1 | Data ingestion (ALA + GBIF) | Fetching wildlife occurrences via REST APIs using **Requests** and **HTTPX (async)** | ✅ Done |
+| 2 | Data cleaning + deduplication | Removing null/invalid coordinates and filtering spatial outliers (Pandas) | ✅ Done |
+| 3 | Spatial join to road network + state boundaries | Applying accurate nearest-neighbour coordinate mapping to OSM road geometries | ✅ Done |
+| 4 | Feature engineering (NDVI · season · ecological weights) | Producing memory-efficient raster composites and deriving biological proxies | ✅ Done |
+| 5 | Proxy label construction + model training (XGBoost + SHAP) | Generating the spatially-lagged target variable and optimizing boosting hyperparameters | 🔄 In Progress |
+| 6 | Sign placement engine | Operating a sliding-window heuristic to pinpoint maximum-impact sign locations | ⏳ Pending |
+| 7 | Streamlit + Folium application | Creating an interactive and fully explainable visualization interface for stakeholders | ⏳ Pending |
+| 8 | Model card + METHODOLOGY.md + screen recording | Detailing data provenance, analytical rationale, and final pipeline outputs | ⏳ Pending |
 
 **Pipeline output:** `sightings.parquet` — 413,000 rows · 11 species · 17 features · ready for label construction.
 
@@ -114,7 +116,7 @@ NDVI rasters (NASA MODIS MOD13A3)         → vegetation context
 | ML | XGBoost, scikit-learn, Optuna, SHAP |
 | Experiment tracking | MLflow (local) |
 | App | Streamlit, Folium |
-| HTTP | HTTPX (async) |
+| HTTP | HTTPX (async), Requests |
 
 ---
 

@@ -25,69 +25,56 @@ MAIN_STATES = (
 
 
 def main():
-    return
     p = "backup/"
 
     for filename in os.listdir(p):
         if filename.endswith(".parquet"):
             df = pd.read_parquet(f"{p}{filename}")
+
+            # Prepare spatial data (joins and projections)
             sightings_gdf = prepare_spatial_data(df)
 
+            # Engineer features and risk labels
+            sightings_gdf = engineer_features(sightings_gdf)
+
             sightings_gdf.to_parquet(f"sightings/{filename}", index=False)
-            print(f"✅{filename} processed successfully.")
-    fetcher.main()
-    return
-    print("Starting Visualization.....")
-    visualize(None)
+            print(f"✅ {filename} processed successfully.\n")
 
 
 def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
+    """Handles GDF conversion, CRS projection, and core spatial joins (States & Roads)."""
     # converting pandas DataFrame to GeoDataFrame
     sightings = gpd.GeoDataFrame(
         df,
-        # creating the geometry column
-        # longitude is X and latitude is Y
         geometry=gpd.points_from_xy(df[LONGITUDE_COLUMN], df[LATITUDE_COLUMN]),
         crs="EPSG:4326",
     )
     sightings_projected = sightings.to_crs("EPSG:32754")
+
     # freeing up memory space
     del sightings
     gc.collect()
 
-    print("Loading state boundaries from the parquet file....")
-    # loading the state data
+    print("Loading boundary and network data....")
     states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
-    sightings_projected = gpd.sjoin(
+    road_network_projected = gpd.read_parquet(
+        "data/processed/australia_projected.parquet"
+    )
+
+    # Spatial join with States
+    sightings_joined = gpd.sjoin(
         sightings_projected,
         states_projected,
         how="inner",
         predicate="within",
     )
-    # freeing up memory space
-    del states_projected
-    gc.collect()
-
     # dropping unnecessary column
-    sightings_projected = sightings_projected.drop(columns=["index_right"])
+    sightings_joined = sightings_joined.drop(columns=["index_right"])
 
-    # replacing the state names with state codes
-    sightings_projected["state"] = sightings_projected["state"].map(fetcher.STATE_CODES)
-
-    # getting the vegetation column
-    sightings_projected = sample_raster_at_points(sightings_projected, col_name="ndvi")
-
-    # dropping data with wrong vegetation data
-    sightings_projected = sightings_projected[sightings_projected["ndvi"] <= 1.0]
-
-    print("Loading road network from the parquet file....")
-    # loading the roads data
-    road_network_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
-
+    # spatial join with nearest Road
     print("Calculating distance to the nearest road....")
-    # spatial join sightings to nearest road
-    sightings_with_road_data = gpd.sjoin_nearest(
-        sightings_projected,
+    sightings_joined = gpd.sjoin_nearest(
+        sightings_joined,
         road_network_projected[
             [
                 "road_segment_id",
@@ -100,28 +87,36 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
         how="left",
         distance_col="distance_to_road",
     )
-    # freeing up memory space
-    del sightings_projected, road_network_projected
-    gc.collect()
-    # dropping the duplicate sightings (in case of multiple nearest roads at same distance)
-    sightings_with_road_data = sightings_with_road_data[
-        ~sightings_with_road_data.index.duplicated(keep="first")
-    ]
     # dropping unnecessary column
-    sightings_with_road_data = sightings_with_road_data.drop(columns=["index_right"])
+    sightings_joined = sightings_joined.drop(columns=["index_right"])
 
-    # rounding the distance
-    sightings_with_road_data["distance_to_road"] = round(
-        sightings_with_road_data["distance_to_road"].astype(float), 2
-    )
+    # dropping the duplicate sightings (in case of multiple nearest roads at same distance)
+    sightings_joined = sightings_joined[
+        ~sightings_joined.index.duplicated(keep="first")
+    ]
 
-    print("Adding risk labels....")
-    # adding risk labels
-    sightings_with_road_data["risk_label"] = sightings_with_road_data[
-        "distance_to_road"
-    ].apply(lambda x: 1 if x <= 500 else 0)
+    # freeing up memory space
+    del sightings_projected, states_projected, road_network_projected
+    gc.collect()
 
-    return sightings_with_road_data
+    return sightings_joined
+
+
+def engineer_features(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Handles feature enrichment: state mapping, NDVI sampling, and risk labeling."""
+    # replacing the state names with state codes
+    gdf["state"] = gdf["state"].map(fetcher.STATE_CODES)
+
+    # sampling vegetation (NDVI) data
+    gdf = sample_raster_at_points(gdf, col_name="ndvi")
+
+    # cleaning NDVI values
+    gdf = gdf[gdf["ndvi"] <= 1.0]
+
+    # rounding the road distance
+    gdf["distance_to_road"] = round(gdf["distance_to_road"].astype(float), 2)
+
+    return gdf
 
 
 def sample_raster_at_points(df, col_name):
@@ -147,6 +142,11 @@ def sample_raster_at_points(df, col_name):
 
     df[col_name] = values
     return df
+
+
+def calculate_risk_score(gdf: gpd.GeoDataFrame):
+    # TODO
+    return gdf
 
 
 def visualize(df: gpd.GeoDataFrame):
