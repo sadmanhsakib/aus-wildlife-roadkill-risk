@@ -4,6 +4,7 @@ import rasterio
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from libpysal.weights import KNN, lag_spatial
 import matplotlib.pyplot as plt
 import seaborn as sns
 from rasterio.sample import sample_gen
@@ -25,6 +26,9 @@ MAIN_STATES = (
 
 
 def main():
+    calculate_risk_score()
+
+    return
     p = "backup/"
 
     for filename in os.listdir(p):
@@ -55,7 +59,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     del sightings
     gc.collect()
 
-    print("Loading boundary and network data....")
+    print("⏳ Loading boundary and network data....")
     states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
     road_network_projected = gpd.read_parquet(
         "data/processed/australia_projected.parquet"
@@ -72,7 +76,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     sightings_joined = sightings_joined.drop(columns=["index_right"])
 
     # spatial join with nearest Road
-    print("Calculating distance to the nearest road....")
+    print("🔄 Calculating distance to the nearest road....")
     sightings_joined = gpd.sjoin_nearest(
         sightings_joined,
         road_network_projected[
@@ -135,7 +139,7 @@ def sample_raster_at_points(df, col_name):
             )
             coords = [transformer.transform(lon, lat) for lon, lat in coords]
 
-        print("Fetching vegetation data for each coordinate....")
+        print("🔄 Fetching vegetation data for each coordinate....")
         sampled = list(sample_gen(src, coords, indexes=1))
 
     values = np.array(sampled, dtype=float)
@@ -144,13 +148,113 @@ def sample_raster_at_points(df, col_name):
     return df
 
 
-def calculate_risk_score(gdf: gpd.GeoDataFrame):
-    # TODO
-    return gdf
+def minmax(series):
+    return (series - series.min()) / (series.max() - series.min())
 
 
-def visualize(df: gpd.GeoDataFrame):
-    if not df:
+def calculate_risk_score():
+    df = pd.read_parquet("sightings.parquet")
+
+    # grouping the sightings by road segment
+    road_segment_df = (
+        df.groupby("road_segment_id")
+        .agg(
+            state=("state", "first"),
+            sighting_count=("species", "count"),
+            species_richness=("species", "nunique"),
+            mean_body_mass_weight=("body_mass_weight", "mean"),
+            mean_nocturnal_weight=("nocturnal_weight", "mean"),
+            mean_peak_season_weight=("peak_season_weight", "mean"),
+            mean_ndvi=("ndvi", "mean"),
+            road_class=("road_class", "first"),
+            speed_limit=("speed_limit", "first"),
+            traffic_proxy=("traffic_proxy", "first"),
+            distance_to_road=("distance_to_road", "mean"),
+        )
+        .reset_index()
+    )
+
+    roads_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
+
+    # getting the geometry for each road segment
+    road_segment_df = road_segment_df.merge(
+        roads_projected[["road_segment_id", "geometry"]],
+        on="road_segment_id",
+        how="left",
+    )
+    # freeing up memory space
+    del roads_projected
+    gc.collect()
+
+    road_segment_gdf = gpd.GeoDataFrame(
+        road_segment_df, geometry="geometry", crs="EPSG:32754"
+    )
+    # freeing up memory space
+    del road_segment_df
+    gc.collect()
+
+    # calculating ecological score - based on species richness, abundance, and habitat quality
+    road_segment_gdf["ecological_score"] = (
+        0.30 * minmax(road_segment_gdf["sighting_count"])  # density matters most
+        + 0.20 * minmax(road_segment_gdf["mean_ndvi"])  # vegetation = habitat
+        + 0.15 * minmax(road_segment_gdf["species_richness"])
+        + 0.15 * minmax(road_segment_gdf["mean_peak_season_weight"])
+        + 0.10 * minmax(road_segment_gdf["mean_nocturnal_weight"])
+        + 0.10 * minmax(road_segment_gdf["mean_body_mass_weight"])
+    )
+
+    # calculating proximity to road - based on distance to road
+    road_segment_gdf["proximity"] = 1 - minmax(road_segment_gdf["distance_to_road"])
+
+    # calculating road exposure score - based on speed limit, traffic proxy, and proximity to road
+    road_segment_gdf["road_exposure_score"] = (
+        0.35 * minmax(road_segment_gdf["speed_limit"])
+        + 0.35 * minmax(road_segment_gdf["proximity"])
+        + 0.30 * minmax(road_segment_gdf["traffic_proxy"])
+    )
+    # multiplying the ecological score and road exposure score
+    # if either of the scores is zero, the raw risk will be zero
+    road_segment_gdf["raw_risk"] = (
+        road_segment_gdf["ecological_score"] * road_segment_gdf["road_exposure_score"]
+    )
+
+    """Injecting neighbourhood context into the label
+        So that the model can't just memorize the training data
+        and can generalize to unseen data"""
+
+    # K=5 means each segment's 5 closest neighbours influence its label
+    w = KNN.from_dataframe(road_segment_gdf, k=5)
+    w.transform = "r"  # row-standardise so weights sum to 1
+
+    # averages the 5 nearest neighbour's risk
+    road_segment_gdf["spatial_lag"] = lag_spatial(
+        w, road_segment_gdf["raw_risk"].values
+    )
+
+    # blending the raw risk with the spatial lag - to prevent the model from memorizing the training data
+    road_segment_gdf["blended_risk"] = (
+        0.7 * road_segment_gdf["raw_risk"] + 0.3 * road_segment_gdf["spatial_lag"]
+    )
+
+    # normalizing the data to a scale of 0 to 1
+    road_segment_gdf["proxy_risk"] = road_segment_gdf["blended_risk"].rank(pct=True)
+
+    road_segment_gdf = road_segment_gdf.drop(
+        columns=[
+            "ecological_score",
+            "proximity",
+            "road_exposure_score",
+            "raw_risk",
+            "spatial_lag",
+            "blended_risk",
+        ]
+    )
+
+    road_segment_gdf.to_parquet("road_segment_labels.parquet", index=False)
+
+
+def visualize(gdf: gpd.GeoDataFrame):
+    if not gdf:
         df = pd.read_parquet("sightings.parquet")
 
         # converting pandas DataFrame to GeoDataFrame
@@ -163,7 +267,7 @@ def visualize(df: gpd.GeoDataFrame):
         )
         gdf = gdf.to_crs("EPSG:32754")
 
-    print("Loading the .parquet files....")
+    print("⏳ Loading the .parquet files....")
     # loading the gdfs for the background
     states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
     roads_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
@@ -175,11 +279,11 @@ def visualize(df: gpd.GeoDataFrame):
     fig, ax = plt.subplots(figsize=(12, 10))
 
     # plotting the whole map
-    print("Plotting the State Map....")
+    print("🔄 Plotting the State Map....")
     states_projected.plot(ax=ax, color="green", alpha=0.2)
 
     # plotting the roads and roads with buffer
-    print("Plotting the roads....")
+    print("🔄 Plotting the roads....")
     roads_projected.plot(ax=ax, color="black", linewidth=0.5, alpha=0.5)
 
     # creating a copy of the modeling dataframe
@@ -195,7 +299,7 @@ def visualize(df: gpd.GeoDataFrame):
     )
 
     # plotting the sightings using seaborn for styled scatter points
-    print("Plotting the sightings....")
+    print("🔄 Plotting the sightings....")
     sns.scatterplot(
         data=sightings_plot_data,
         x="x",
@@ -223,4 +327,4 @@ if __name__ == "__main__":
     start_time = time.time()
     main()
     end_time = time.time()
-    print(f"Time taken: {end_time - start_time} seconds")
+    print(f"✅ Time taken: {end_time - start_time} seconds")

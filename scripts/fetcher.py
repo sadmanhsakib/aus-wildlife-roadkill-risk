@@ -103,7 +103,7 @@ NOCTURNAL = {
 
 
 def main():
-    get_ala_data("Macropus giganteus", "New South Wales")
+    prepare_road_network()
     return
     files = os.listdir("sightings/")
     files = [os.path.join("sightings/", file) for file in files]
@@ -112,7 +112,7 @@ def main():
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
-    """ Fetches data from GBIF for a given species key and state. """
+    """Fetches data from GBIF for a given species key and state."""
     offset = 0
     results = []
 
@@ -135,13 +135,13 @@ async def get_gbif_data(species_key: int, state: str) -> str:
                 data = response.json()
                 results.extend(data["results"])
 
-                print(f"Data Pulled: {offset}")
+                print(f"✅ Data Pulled: {offset}")
                 # stopping if it's the end of the dataset
                 if data["endOfRecords"] or offset > 100:
                     break
                 offset += 300
             else:
-                print(f"Error: {response.status_code}")
+                print(f"❌ Error: {response.status_code}")
                 print(response.text)
                 return 1
         # for avoiding HTTP 429 error
@@ -164,16 +164,16 @@ async def get_gbif_data(species_key: int, state: str) -> str:
             ]
         ]
         df.to_csv(file_name, index=False)
-        print(f"✅Data exported to {file_name} successfully. ")
+        print(f"✅ Data exported to {file_name} successfully. ")
 
         return file_name
     else:
-        print("No results found.")
+        print("⛔ No results found.")
         return None
 
 
 def get_ala_data(species_scientific_name: str, state: str) -> str:
-    """ Fetches data from ALA for a given species scientific name and state. """
+    """Fetches data from ALA for a given species scientific name and state."""
     offset = 0
     results = []
 
@@ -193,13 +193,12 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
 
         response = requests.get(ALA_URL, params=params, headers=headers)
 
-
         # checking if the request was successful
         if response.status_code == 200:
             data = response.json()
             results.extend(data["occurrences"])
 
-            print(f"Data Pulled: {offset}")
+            print(f"✅ Data Pulled: {offset}")
             try:
                 # check if we've reached the end of the dataset to avoid data loss
                 total_records = data.get("totalRecords", 0)
@@ -213,7 +212,7 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
                 # catch potential missing fields or invalid types to prevent infinite loops
                 break
         else:
-            print(f"Error: {response.status_code}")
+            print(f"❌ Error: {response.status_code}")
             print(response.text)
             return 1
         # for avoiding HTTP 429 error
@@ -225,20 +224,20 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
         # exporting the collected data to a csv file
         df = pd.DataFrame(results)
         df.to_csv(file_name, index=False)
-        print(f"✅Data exported to {file_name} successfully. ")
+        print(f"✅ Data exported to {file_name} successfully. ")
 
         return file_name
     else:
-        print("No results found.")
+        print("⛔ No results found.")
         return None
 
 
 def clean_DataFrame(file_name: str):
-    """ Cleans the data by 
-        1. removing rows with missing values
-        2. removing older sighting data
-        3. removing sightings outside Australia
-        4. removing duplicates """
+    """Cleans the data by
+    1. removing rows with missing values
+    2. removing older sighting data
+    3. removing sightings outside Australia
+    4. removing duplicates"""
     column_schema = [
         "species",
         "month",
@@ -290,11 +289,11 @@ def clean_DataFrame(file_name: str):
 
     # exporting the csv file
     df.to_csv(f"{file_name}", index=False)
-    print(f"✅Data exported to {file_name} successfully. ")
+    print(f"✅ Data exported to {file_name} successfully. ")
 
 
 def merge(new_file_name: str, file_names: list, shouldDelete=True):
-    """ Merges multiple .csv or .parquet files into a single .csv or .parquet file. """
+    """Merges multiple .csv or .parquet files into a single .csv or .parquet file."""
     df_list = []
 
     # loading all DataFrames in a single list
@@ -323,11 +322,11 @@ def merge(new_file_name: str, file_names: list, shouldDelete=True):
     elif new_file_name.endswith(".parquet"):
         merged_df.to_parquet(new_file_name, index=False)
 
-    print(f"✅{file_names} merged into {new_file_name} successfully. ")
+    print(f"✅ {file_names} merged into {new_file_name} successfully. ")
 
 
 def to_parquet(path: str):
-    """ Converts all the .csv files in a directory to .parquet files. """
+    """Converts all the .csv files in a directory to .parquet files."""
     file_names = []
 
     try:
@@ -347,11 +346,11 @@ def to_parquet(path: str):
         df.to_parquet(new_file_name, index=False)
 
         os.remove(file_name)
-        print(f"✅Data exported to {new_file_name} successfully. ")
+        print(f"✅ Data exported to {new_file_name} successfully. ")
 
 
 def enrich(path: str):
-    """ Enriches the data with season, body mass weight, nocturnal weight, and peak season weight. """
+    """Enriches the data with season, body mass weight, nocturnal weight, and peak season weight."""
     file_names = []
 
     try:
@@ -381,17 +380,17 @@ def enrich(path: str):
         ]
 
         df.to_parquet(file_name, index=False)
-        print(f"{file_name} enriched successfully. ")
+        print(f"✅ {file_name} enriched successfully. ")
 
 
 def prepare_road_network():
-    """ Prepares the road network by 
-        1. loading the road data
-        2. filtering to relevant roads
-        3. adding speed limit and traffic proxy
-        4. renaming the columns
-        5. converting it to a projected system. """
-    print("Loading the road network...")
+    """Prepares the road network by
+    1. loading the road data
+    2. filtering to relevant roads
+    3. adding speed limit and traffic proxy
+    4. renaming the columns
+    5. converting it to a projected system."""
+    print("⏳ Loading the road network...")
 
     # loading the roads data
     road_network = gpd.read_file(
@@ -401,17 +400,17 @@ def prepare_road_network():
     )
 
     # speed limit and traffic volume by the road types
-    # traffic proxy is a rating out of 5
-    # : very busy traffic, 1: very light traffic
+    # traffic proxy is a proxy for traffic volume
+    # the range is (0.2 - 1.0)
     FCLASS_DEFAULTS = {
-        "motorway": (110, 5),
-        "trunk": (100, 4),
-        "primary": (100, 3),
-        "secondary": (80, 2),
-        "tertiary": (80, 2),
-        "unclassified": (60, 1),
-        "track": (40, 1),
-        "residential": (50, 1),
+        "motorway": (110, 1.0),
+        "trunk": (100, 0.8),
+        "primary": (100, 0.6),
+        "secondary": (80, 0.4),
+        "tertiary": (80, 0.4),
+        "unclassified": (60, 0.2),
+        "track": (40, 0.2),
+        "residential": (50, 0.2),
     }
 
     # filtering to keep the relevant roads
@@ -445,16 +444,16 @@ def prepare_road_network():
     road_network_projected.to_parquet(
         "data/processed/australia_projected.parquet", index=False
     )
-    print("✅Road network parsed and saved to australia_projected.parquet")
+    print("✅ Road network parsed and saved to australia_projected.parquet")
 
 
 def prepare_state_network():
-    """ Prepares the state network by 
-        1. loading the raw state data
-        2. filtering to main states
-        3. renaming the column
-        4. converting it to a projected system. """
-    print("Loading the state data...")
+    """Prepares the state network by
+    1. loading the raw state data
+    2. filtering to main states
+    3. renaming the column
+    4. converting it to a projected system."""
+    print("⏳ Loading the state data...")
 
     # loading the whole map
     states = gpd.read_file(
@@ -470,7 +469,7 @@ def prepare_state_network():
     gc.collect()
 
     states_projected.to_parquet("data/processed/states_projected.parquet", index=False)
-    print("✅State network parsed and saved to states_projected.parquet")
+    print("✅ State network parsed and saved to states_projected.parquet")
 
 
 def build_ndvi_median_composite():
@@ -479,7 +478,7 @@ def build_ndvi_median_composite():
     produces a single median composite raster using windowed processing
     to avoid memory errors.
     """
-    print("Merging the .tif files (memory-efficient block-wise processing)...")
+    print("🔄 Merging the .tif files (memory-efficient block-wise processing)...")
 
     tif_folder = "data/raw/vegetation/"
     output_path = "data/processed/ndvi_median_australia.tif"
@@ -487,10 +486,10 @@ def build_ndvi_median_composite():
     # finding and storing the file_paths of all .tif files
     tif_files = sorted(glob.glob(os.path.join(tif_folder, "*.tif")))
     if not tif_files:
-        print("No .tif files found in vegetation folder.")
+        print("⛔ No .tif files found in vegetation folder.")
         return
 
-    print(f"Found {len(tif_files)} monthly files. ")
+    print(f"✅ Found {len(tif_files)} monthly files. ")
 
     # Open all source files
     srcs = [rasterio.open(f) for f in tif_files]
@@ -508,7 +507,7 @@ def build_ndvi_median_composite():
 
             for i, window in enumerate(windows):
                 if i % 10 == 0:
-                    print(f"Processing block {i+1}/{num_windows}...")
+                    print(f"🔄 Processing block {i+1}/{num_windows}...")
 
                 block_arrays = []
                 for src in srcs:
@@ -543,4 +542,4 @@ if __name__ == "__main__":
     start_time = time.time()
     main()
     end_time = time.time()
-    print(f"Time taken: {end_time - start_time} seconds")
+    print(f"✅ Time taken: {end_time - start_time} seconds")
