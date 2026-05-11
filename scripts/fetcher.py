@@ -1,10 +1,20 @@
+"""
+Wildlife Data Ingestion & Geospatial Preprocessing Pipeline
+===========================================================
+This module orchestrates the full upstream data pipeline: fetching biodiversity
+occurrence records from GBIF and ALA, cleaning and standardizing raw CSVs,
+enriching species records with ecological risk weights, and preparing projected
+road and state boundary datasets for downstream spatial analysis.
+"""
+
 import os, time, gc, glob
 import httpx, asyncio, rasterio, requests
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-# GBIF KEYS
+# --- GBIF Species Taxon Keys ---
+# These integer keys uniquely identify species in the GBIF backbone taxonomy.
 KANGAROO_RED_KEY = 12019022
 KANGAROO_GREY_KEY = 5219981
 WALLABY_SWAMP_KEY = 2440149
@@ -16,7 +26,9 @@ POSSUM_RINGTAIL_KEY = 2440062
 BANDICOOT_BROWN_KEY = 2435311
 ECHIDNA_KEY = 2433378
 PLATYPUS_KEY = 2433376
-# Scientific Names for ALA
+
+# --- ALA Scientific Names ---
+# Full binomial nomenclature used to query the Atlas of Living Australia API.
 KANGAROO_RED_SCIENTIFIC_NAME = "Osphranter rufus"
 KANGAROO_GREY_SCIENTIFIC_NAME = "Macropus giganteus"
 WALLABY_SWAMP_SCIENTIFIC_NAME = "Wallabia bicolor"
@@ -28,10 +40,12 @@ POSSUM_RINGTAIL_SCIENTIFIC_NAME = "Pseudocheirus peregrinus"
 BANDICOOT_BROWN_SCIENTIFIC_NAME = "Isoodon obesulus"
 ECHIDNA_SCIENTIFIC_NAME = "Tachyglossus aculeatus"
 PLATYPUS_SCIENTIFIC_NAME = "Ornithorhynchus anatinus"
-# Base URLs
+
+# --- External API Endpoints ---
 GBIF_URL = "https://api.gbif.org/v1/occurrence/search"
 ALA_URL = "https://biocache-ws.ala.org.au/ws/occurrences/search"
 
+# Standard ISO-style state code mapping for Australian jurisdictions
 STATE_CODES = {
     "New South Wales": "NSW",
     "Queensland": "QLD",
@@ -43,6 +57,7 @@ STATE_CODES = {
     "Western Australia": "WA",
 }
 
+# Southern Hemisphere month-to-season mapping
 SEASON_MAP = {
     1: "Summer",
     2: "Summer",
@@ -58,6 +73,8 @@ SEASON_MAP = {
     12: "Summer",
 }
 
+# Peak activity months per species, informed by breeding and movement ecology literature.
+# Used to assign a temporal risk weight to sightings recorded during high-activity periods.
 PEAK_SEASON_MAP = {
     "Osphranter rufus": [9, 10, 11, 12],
     "Macropus rufus": [9, 10, 11, 12],
@@ -73,20 +90,24 @@ PEAK_SEASON_MAP = {
     "Ornithorhynchus anatinus": [9, 10, 11],
 }
 
+# Body mass weight coefficients, scaled 0.0–1.0 relative to the red kangaroo (~85 kg).
+# Larger animals cause greater vehicle damage and represent higher mortality risk per collision.
 BODY_MASS_WEIGHT = {
-    "Osphranter rufus": 1.00,  # Red kangaroo       ~85kg
-    "Macropus giganteus": 0.90,  # Eastern grey       ~66kg
-    "Wallabia bicolor": 0.65,  # Swamp wallaby      ~20kg
-    "Notamacropus rufogriseus": 0.60,  # Red-necked wallaby ~17kg
-    "Vombatus ursinus": 0.70,  # Common wombat      ~35kg
-    "Phascolarctos cinereus": 0.55,  # Koala              ~12kg
-    "Trichosurus vulpecula": 0.30,  # Brushtail possum   ~4kg
-    "Pseudocheirus peregrinus": 0.25,  # Ringtail possum    ~1kg
-    "Isoodon obesulus": 0.35,  # S. brown bandicoot ~1.5kg
-    "Tachyglossus aculeatus": 0.40,  # Echidna            ~6kg
-    "Ornithorhynchus anatinus": 0.45,  # Platypus           ~2kg
+    "Osphranter rufus": 1.00,           # Red kangaroo       ~85kg
+    "Macropus giganteus": 0.90,         # Eastern grey       ~66kg
+    "Wallabia bicolor": 0.65,           # Swamp wallaby      ~20kg
+    "Notamacropus rufogriseus": 0.60,   # Red-necked wallaby ~17kg
+    "Vombatus ursinus": 0.70,           # Common wombat      ~35kg
+    "Phascolarctos cinereus": 0.55,     # Koala              ~12kg
+    "Trichosurus vulpecula": 0.30,      # Brushtail possum   ~4kg
+    "Pseudocheirus peregrinus": 0.25,   # Ringtail possum  ~1kg
+    "Isoodon obesulus": 0.35,           # S. brown bandicoot ~1.5kg
+    "Tachyglossus aculeatus": 0.40,     # Echidna            ~6kg
+    "Ornithorhynchus anatinus": 0.45,   # Platypus         ~2kg
 }
 
+# Nocturnality score (0.0–1.0). Reflects the probability of nighttime road crossing,
+# where reduced driver visibility significantly increases collision risk.
 NOCTURNAL = {
     "Osphranter rufus": 0.7,
     "Macropus giganteus": 0.7,
@@ -112,7 +133,19 @@ def main():
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
-    """Fetches data from GBIF for a given species key and state."""
+    """
+    Asynchronously fetches paginated species occurrence records from the GBIF API.
+
+    Iterates through all available pages for the given taxon and state,
+    persisting results to a CSV upon completion.
+
+    Args:
+        species_key: GBIF backbone taxon key for the target species.
+        state: Australian state/territory name to scope the query.
+
+    Returns:
+        Path to the exported CSV file, or None if no records were found.
+    """
     offset = 0
     results = []
 
@@ -130,13 +163,11 @@ async def get_gbif_data(species_key: int, state: str) -> str:
 
             response = await client.get(GBIF_URL, params=params)
 
-            # checking if the request was successful
             if response.status_code == 200:
                 data = response.json()
                 results.extend(data["results"])
 
                 print(f"✅ Data Pulled: {offset}")
-                # stopping if it's the end of the dataset
                 if data["endOfRecords"] or offset > 100:
                     break
                 offset += 300
@@ -144,24 +175,16 @@ async def get_gbif_data(species_key: int, state: str) -> str:
                 print(f"❌ Error: {response.status_code}")
                 print(response.text)
                 return 1
-        # for avoiding HTTP 429 error
+
+        # Respect GBIF rate limits to avoid HTTP 429 backpressure
         await asyncio.sleep(1.0)
 
     if results:
         file_name = (
             f"{results[0]['species'].lower().replace(' ', '_')}_sightings_gbif.csv"
         )
-        # exporting the collected data to a csv file
-        df = pd.DataFrame(results)
-        # only keeping the required rows
-        df = df[
-            [
-                "species",
-                "month",
-                "year",
-                "decimalLatitude",
-                "decimalLongitude",
-            ]
+        df = pd.DataFrame(results)[
+            ["species", "month", "year", "decimalLatitude", "decimalLongitude"]
         ]
         df.to_csv(file_name, index=False)
         print(f"✅ Data exported to {file_name} successfully. ")
@@ -173,7 +196,16 @@ async def get_gbif_data(species_key: int, state: str) -> str:
 
 
 def get_ala_data(species_scientific_name: str, state: str) -> str:
-    """Fetches data from ALA for a given species scientific name and state."""
+    """
+    Fetches paginated species occurrence records from the Atlas of Living Australia (ALA) API.
+
+    Args:
+        species_scientific_name: Binomial species name for the Solr-based ALA query.
+        state: Australian state/territory name to scope the query.
+
+    Returns:
+        Path to the exported CSV file, or None if no records were found.
+    """
     offset = 0
     results = []
 
@@ -187,41 +219,39 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
             ],
             "pageSize": 1000,  # records per page (max 1000)
             "startIndex": offset,  # for pagination
-            "fl": "scientificName,month,year,decimalLatitude,decimalLongitude",  # fields to return
+            "fl": "scientificName,month,year,decimalLatitude,decimalLongitude",
         }
         headers = {"Accept": "application/json"}
 
         response = requests.get(ALA_URL, params=params, headers=headers)
 
-        # checking if the request was successful
         if response.status_code == 200:
             data = response.json()
             results.extend(data["occurrences"])
 
             print(f"✅ Data Pulled: {offset}")
             try:
-                # check if we've reached the end of the dataset to avoid data loss
                 total_records = data.get("totalRecords", 0)
+                # Stop early once all pages are consumed
                 if not data.get("occurrences") or offset + 1000 >= total_records:
                     break
-                # temporary break for testing purposes
+                # Guard against unbounded fetches during development
                 elif offset > 10:
                     break
                 offset += 1000
             except (KeyError, TypeError):
-                # catch potential missing fields or invalid types to prevent infinite loops
+                # Safeguard against malformed API responses to prevent infinite loops
                 break
         else:
             print(f"❌ Error: {response.status_code}")
             print(response.text)
             return 1
-        # for avoiding HTTP 429 error
+
+        # Respect ALA rate limits to avoid HTTP 429 backpressure
         time.sleep(1.0)
 
     if results:
         file_name = f"{results[0]['scientificName'].lower().replace(' ', '_')}_sightings_ala.csv"
-
-        # exporting the collected data to a csv file
         df = pd.DataFrame(results)
         df.to_csv(file_name, index=False)
         print(f"✅ Data exported to {file_name} successfully. ")
@@ -233,11 +263,21 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
 
 
 def clean_DataFrame(file_name: str):
-    """Cleans the data by
-    1. removing rows with missing values
-    2. removing older sighting data
-    3. removing sightings outside Australia
-    4. removing duplicates"""
+    """
+    Standardizes and validates a raw occurrence CSV, enforcing schema consistency
+    and geographic bounds for Australian territory.
+
+    Applies the following transformations:
+    - Normalizes ALA/GBIF column naming differences to a unified schema.
+    - Drops records missing temporal or coordinate data.
+    - Excludes records predating the 2020 baseline, which aligns with
+      the NDVI composite period and road network data.
+    - Enforces Australian continental bounding box to remove offshore artefacts.
+    - Deduplicates at the spatial-temporal granularity of the data model.
+
+    Args:
+        file_name: Path to the input CSV file. Overwritten in place on success.
+    """
     column_schema = [
         "species",
         "month",
@@ -246,25 +286,15 @@ def clean_DataFrame(file_name: str):
         "decimalLongitude",
     ]
 
-    # reading the csv file
     df = pd.read_csv(file_name)
 
-    # for ALA data
+    # ALA uses 'scientificName' while GBIF uses 'species' — normalize to unified schema
     try:
-        # renmaing the ala specific column
-        df = df.rename(
-            columns={
-                "scientificName": "species",
-            }
-        )
-    # for GBIF data
+        df = df.rename(columns={"scientificName": "species"})
     except KeyError:
         pass
 
-    # ordering the column in correct schema
     df = df[column_schema]
-
-    # renmaing the other columns
     df = df.rename(
         columns={
             "decimalLatitude": "latitude",
@@ -272,51 +302,54 @@ def clean_DataFrame(file_name: str):
         }
     )
 
-    # removing rows with missing values
     df = df.dropna(subset=["latitude", "longitude", "year", "month"])
 
-    # removing rows with older sighting data
+    # Exclude pre-2020 records to align with NDVI and road dataset temporal coverage
     df = df.drop(df[df["year"] < 2020].index)
 
-    # dropping rows outside Australia
+    # Enforce Australian continental bounding box (lat: -44 to -10, lon: 113 to 154)
     df = df.drop(df[df["latitude"] < -44].index)
     df = df.drop(df[df["latitude"] > -10].index)
     df = df.drop(df[df["longitude"] < 113].index)
     df = df.drop(df[df["longitude"] > 154].index)
 
-    # removing duplicates
     df = df.drop_duplicates(subset=["latitude", "longitude", "year", "month"])
 
-    # exporting the csv file
     df.to_csv(f"{file_name}", index=False)
     print(f"✅ Data exported to {file_name} successfully. ")
 
 
 def merge(new_file_name: str, file_names: list, shouldDelete=True):
-    """Merges multiple .csv or .parquet files into a single .csv or .parquet file."""
+    """
+    Consolidates multiple species occurrence files into a single unified dataset.
+
+    Supports both CSV and Parquet input formats. Deduplication ensures data
+    integrity across overlapping pulls from GBIF and ALA for the same species.
+
+    Args:
+        new_file_name: Output file path. Extension determines format (.csv or .parquet).
+        file_names: List of input file paths to merge.
+        shouldDelete: If True, source files are removed after a successful merge.
+    """
     df_list = []
 
-    # loading all DataFrames in a single list
     for file_name in file_names:
         if file_name.endswith(".csv"):
             df_list.append(pd.read_csv(file_name))
         elif file_name.endswith(".parquet"):
             df_list.append(pd.read_parquet(file_name))
 
-    # merging the dfs all together
     merged_df = pd.concat(df_list, ignore_index=True)
 
-    # removing duplicates
+    # Cross-source deduplication on the canonical spatial-temporal key
     merged_df = merged_df.drop_duplicates(
         subset=["species", "month", "year", "latitude", "longitude"]
     )
 
     if shouldDelete:
-        # removing the old files
         for file_name in file_names:
             os.remove(file_name)
 
-    # exporting the file
     if new_file_name.endswith(".csv"):
         merged_df.to_csv(new_file_name, index=False)
     elif new_file_name.endswith(".parquet"):
@@ -326,16 +359,22 @@ def merge(new_file_name: str, file_names: list, shouldDelete=True):
 
 
 def to_parquet(path: str):
-    """Converts all the .csv files in a directory to .parquet files."""
+    """
+    Converts CSV occurrence files to the Parquet format for columnar storage efficiency.
+
+    Accepts either a directory (batch conversion) or a single file path. Source CSV
+    files are removed after successful conversion to prevent stale data accumulation.
+
+    Args:
+        path: Directory path or single CSV file path to convert.
+    """
     file_names = []
 
     try:
         for file_name in os.listdir(path):
             if not file_name.endswith(".csv"):
                 continue
-
-            file_name = os.path.join(path, file_name)
-            file_names.append(file_name)
+            file_names.append(os.path.join(path, file_name))
     except NotADirectoryError:
         file_names.append(path)
 
@@ -350,30 +389,37 @@ def to_parquet(path: str):
 
 
 def enrich(path: str):
-    """Enriches the data with season, body mass weight, nocturnal weight, and peak season weight."""
+    """
+    Augments occurrence records with species-specific ecological risk weights
+    required for the composite risk scoring model in analyzer.py.
+
+    Appended columns:
+    - `season`: Calendar season derived from the observation month.
+    - `body_mass_weight`: Normalized collision severity proxy (larger animal = higher impact).
+    - `nocturnal_weight`: Probability of nighttime road crossing (higher = greater low-visibility risk).
+    - `peak_season_weight`: Temporal risk multiplier (1.3 during peak activity months, else 1.0).
+
+    Args:
+        path: Directory path or single Parquet file path to enrich. Files are updated in place.
+    """
     file_names = []
 
     try:
         for file_name in os.listdir(path):
             if not file_name.endswith(".parquet"):
                 continue
-
-            file_name = os.path.join(path, file_name)
-            file_names.append(file_name)
+            file_names.append(os.path.join(path, file_name))
     except NotADirectoryError:
         file_names.append(path)
 
     for file_name in file_names:
-        # loading the df
         df = pd.read_parquet(file_name)
 
-        # adding the season column
         df["season"] = df["month"].map(SEASON_MAP)
-        # Adding species-specific weights
         df["body_mass_weight"] = df["species"].map(BODY_MASS_WEIGHT)
         df["nocturnal_weight"] = df["species"].map(NOCTURNAL)
 
-        # Calculate peak season weight
+        # Vectorized peak-season flag: applies a 1.3x multiplier for biologically active periods
         df["peak_season_weight"] = [
             1.3 if m in PEAK_SEASON_MAP.get(s, []) else 1.0
             for s, m in zip(df["species"], df["month"])
@@ -384,24 +430,26 @@ def enrich(path: str):
 
 
 def prepare_road_network():
-    """Prepares the road network by
-    1. loading the road data
-    2. filtering to relevant roads
-    3. adding speed limit and traffic proxy
-    4. renaming the columns
-    5. converting it to a projected system."""
+    """
+    Parses and projects the raw OpenStreetMap road network into the analysis-ready format.
+
+    Filters OSM road classes to those relevant to wildlife collision risk,
+    assigns canonical speed limits and traffic proxy volumes per road class,
+    and reprojects to MGA Zone 54 (EPSG:32754) for metric distance calculations.
+
+    Road class speed limits and traffic proxies are heuristics derived from
+    Australian road design standards and traffic volume literature.
+    """
     print("⏳ Loading the road network...")
 
-    # loading the roads data
     road_network = gpd.read_file(
         "data/raw/australia.gpkg",
         layer="gis_osm_roads_free",
         columns=["osm_id", "name", "fclass", "geometry"],
     )
 
-    # speed limit and traffic volume by the road types
-    # traffic proxy is a proxy for traffic volume
-    # the range is (0.2 - 1.0)
+    # Speed limit (km/h) and traffic proxy (0.2–1.0) per OSM functional road class.
+    # Traffic proxy is a relative volume index, not an absolute vehicle count.
     FCLASS_DEFAULTS = {
         "motorway": (110, 1.0),
         "trunk": (100, 0.8),
@@ -413,18 +461,15 @@ def prepare_road_network():
         "residential": (50, 0.2),
     }
 
-    # filtering to keep the relevant roads
+    # Retain only road classes covered by the risk model
     road_network = road_network[road_network["fclass"].isin(FCLASS_DEFAULTS.keys())]
-    # adding the speed limit
     road_network["speed_zone"] = road_network["fclass"].map(
         lambda x: FCLASS_DEFAULTS[x][0]
     )
-    # adding the traffic proxy
     road_network["traffic_proxy"] = road_network["fclass"].map(
         lambda x: FCLASS_DEFAULTS[x][1]
     )
 
-    # renaming the column
     road_network.rename(
         columns={
             "osm_id": "road_segment_id",
@@ -435,9 +480,8 @@ def prepare_road_network():
         inplace=True,
     )
 
-    # converting it to projected system for accurate distance calculations
+    # Reproject to MGA Zone 54 for accurate metric distance calculations
     road_network_projected = road_network.to_crs("EPSG:32754")
-    # freeing up memory space
     del road_network
     gc.collect()
 
@@ -448,23 +492,23 @@ def prepare_road_network():
 
 
 def prepare_state_network():
-    """Prepares the state network by
-    1. loading the raw state data
-    2. filtering to main states
-    3. renaming the column
-    4. converting it to a projected system."""
+    """
+    Loads and reprojects the ABS SA1 state boundary shapefile into the analysis CRS.
+
+    Filters to the eight canonical Australian states and territories,
+    normalizes the column name, and projects to EPSG:32754 for spatial joins
+    with the sightings and road network datasets.
+    """
     print("⏳ Loading the state data...")
 
-    # loading the whole map
     states = gpd.read_file(
         "data/raw/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
     )
 
-    # filtering to just the main states
+    # Exclude non-state jurisdictions (e.g., offshore territories, Jervis Bay)
     states = states[states["STE_NAME21"].isin(STATE_CODES.keys())]
     states = states.rename(columns={"STE_NAME21": "state"})
     states_projected = states.to_crs("EPSG:32754")
-    # freeing up memory space
     del states
     gc.collect()
 
@@ -474,16 +518,22 @@ def prepare_state_network():
 
 def build_ndvi_median_composite():
     """
-    Takes all monthly NDVI GeoTIFFs from AppEEARS and
-    produces a single median composite raster using windowed processing
-    to avoid memory errors.
+    Generates a single long-term median NDVI raster from monthly AppEEARS GeoTIFFs.
+
+    Uses block-wise (windowed) I/O to process rasters without loading full arrays
+    into memory — essential for continent-scale vegetation datasets.
+
+    Processing steps per block:
+    - Reads the same spatial window from every monthly source file.
+    - Applies the MODIS nodata mask (-28672) and the standard scale factor (0.0001).
+    - Computes a NaN-safe pixel-wise median across all source months.
+    - Writes the resulting composite block to the output GeoTIFF.
     """
     print("🔄 Merging the .tif files (memory-efficient block-wise processing)...")
 
     tif_folder = "data/raw/vegetation/"
     output_path = "data/processed/ndvi_median_australia.tif"
 
-    # finding and storing the file_paths of all .tif files
     tif_files = sorted(glob.glob(os.path.join(tif_folder, "*.tif")))
     if not tif_files:
         print("⛔ No .tif files found in vegetation folder.")
@@ -491,17 +541,13 @@ def build_ndvi_median_composite():
 
     print(f"✅ Found {len(tif_files)} monthly files. ")
 
-    # Open all source files
     srcs = [rasterio.open(f) for f in tif_files]
 
     try:
-        # Use metadata from first file
         meta = srcs[0].meta.copy()
         meta.update(dtype="float32", count=1, nodata=np.nan)
 
-        # Create output file
         with rasterio.open(output_path, "w", **meta) as dst:
-            # Iterate through the destination file in blocks (windows)
             windows = [window for _, window in dst.block_windows(1)]
             num_windows = len(windows)
 
@@ -511,27 +557,21 @@ def build_ndvi_median_composite():
 
                 block_arrays = []
                 for src in srcs:
-                    # Read the current window from each source file
                     data = src.read(1, window=window).astype(np.float32)
-                    data[data == -28672] = np.nan  # MODIS nodata value
-                    data = data * 0.0001  # MODIS scale factor
+                    data[data == -28672] = np.nan  # MODIS fill value sentinel
+                    data = data * 0.0001  # MODIS DN → reflectance scale factor
                     block_arrays.append(data)
 
-                # Stack the small blocks (num_files, block_height, block_width)
+                # Stack to (num_months, H, W) and reduce along the temporal axis
                 stack = np.stack(block_arrays, axis=0)
-
-                # Compute median for this block ignoring NaNs
                 block_median = np.nanmedian(stack, axis=0)
 
-                # Write results to the output file window
                 dst.write(block_median.astype(np.float32), 1, window=window)
 
-                # Explicitly clear block memory
                 del stack, block_arrays
                 gc.collect()
 
     finally:
-        # Close all source files
         for src in srcs:
             src.close()
 
@@ -541,5 +581,4 @@ def build_ndvi_median_composite():
 if __name__ == "__main__":
     start_time = time.time()
     main()
-    end_time = time.time()
-    print(f"✅ Time taken: {end_time - start_time} seconds")
+    print(f"✅ Analysis pipeline completed in {time.time() - start_time:.2f} seconds")

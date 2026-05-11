@@ -344,7 +344,7 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 ### Prerequisites
 
 - Python 3.11+
-- ~30GB free disk space (for raw NDVI rasters and intermediate files)
+- ~10GB free disk space (for raw NDVI rasters and intermediate files)
 - NASA Earthdata account (free) for AppEEARS MODIS download
 
 ### Installation
@@ -502,7 +502,6 @@ This project uses data from:
 
 <div align="center">
 
-*Built as part of the UNSW International Scientia Scholarship application.*
 *Every line of code, every design decision, and every result is fully open and reproducible.*
 
 **🦘 For the animals. 🌿 For the science. 🛣️ For safer roads.**
