@@ -319,7 +319,7 @@ def clean_DataFrame(file_name: str):
     print(f"✅ Data exported to {file_name} successfully. ")
 
 
-def merge(new_file_name: str, file_names: list, shouldDelete=True):
+def merge(new_file_name: str, file_names: list, shouldDelete=False, has_geometry=False):
     """
     Consolidates multiple species occurrence files into a single unified dataset.
 
@@ -333,11 +333,18 @@ def merge(new_file_name: str, file_names: list, shouldDelete=True):
     """
     df_list = []
 
-    for file_name in file_names:
-        if file_name.endswith(".csv"):
-            df_list.append(pd.read_csv(file_name))
-        elif file_name.endswith(".parquet"):
-            df_list.append(pd.read_parquet(file_name))
+    if has_geometry:    
+        for file_name in file_names:
+            if file_name.endswith(".csv"):
+                df_list.append(pd.read_csv(file_name))
+            elif file_name.endswith(".parquet"):
+                df_list.append(gpd.read_parquet(file_name))
+    else:
+        for file_name in file_names:
+            if file_name.endswith(".csv"):
+                df_list.append(pd.read_csv(file_name))
+            elif file_name.endswith(".parquet"):
+                df_list.append(pd.read_parquet(file_name))
 
     merged_df = pd.concat(df_list, ignore_index=True)
 

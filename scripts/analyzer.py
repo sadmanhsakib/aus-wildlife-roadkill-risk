@@ -36,7 +36,6 @@ MAIN_STATES = (
 
 def main():
     engineer_proxy_risk_labels()
-
     return
     p = "backup/"
 
@@ -52,6 +51,12 @@ def main():
 
             sightings_gdf.to_parquet(f"sightings/{filename}", index=False)
             print(f"✅ {filename} processed successfully.\n")
+            
+    fetcher.merge(
+        "sightings.parquet",
+        [f"sightings/{f}" for f in os.listdir("sightings/")],
+        has_geometry=True,
+    )
 
 
 def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
@@ -65,16 +70,11 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     Returns:
         GeoDataFrame enriched with state and nearest road segment metadata.
     """
-    sightings = gpd.GeoDataFrame(
+    sightings_projected = gpd.GeoDataFrame(
         df,
         geometry=gpd.points_from_xy(df[LONGITUDE_COLUMN], df[LATITUDE_COLUMN]),
         crs="EPSG:4326",
-    )
-    # Project to MGA Zone 54 (suitable for Australian continent-wide analysis)
-    sightings_projected = sightings.to_crs("EPSG:32754")
-
-    del sightings
-    gc.collect()
+    ).to_crs("EPSG:32754")
 
     print("⏳ Loading boundary and network data....")
     states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
@@ -189,11 +189,11 @@ def engineer_proxy_risk_labels():
     3. Blends raw risk with a Spatial Lag to prevent overfitting to specific patches.
     4. Generates a percentile-based proxy risk label.
     """
-    df = pd.read_parquet("sightings.parquet")
+    gdf = gpd.read_parquet("sightings.parquet")
 
     # Aggregate species and habitat metrics at the road segment level
     road_segment_df = (
-        df.groupby("road_segment_id")
+        gdf.groupby("road_segment_id")
         .agg(
             state=("state", "first"),
             sighting_count=("species", "count"),
@@ -209,6 +209,8 @@ def engineer_proxy_risk_labels():
         )
         .reset_index()
     )
+    del gdf
+    gc.collect()
 
     roads_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
     road_segment_df = road_segment_df.merge(
@@ -271,7 +273,6 @@ def engineer_proxy_risk_labels():
     road_segment_gdf = road_segment_gdf.drop(
         columns=[
             "ecological_score",
-            "proximity",
             "road_exposure_score",
             "raw_risk",
             "spatial_lag",
