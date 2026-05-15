@@ -173,10 +173,11 @@ def sample_raster_at_points(df, col_name):
     return df
 
 
-def minmax(series):
-    """Standard Min-Max normalization for feature scaling."""
-    return (series - series.min()) / (series.max() - series.min())
-
+def minmax(series, q_hi=0.99):
+    """Cap outliers at q_hi percentile before scaling."""
+    hi = series.quantile(q_hi)
+    clipped = series.clip(upper=hi)
+    return (clipped - clipped.min()) / (clipped.max() - clipped.min())
 
 def engineer_proxy_risk_labels():
     """
@@ -231,8 +232,8 @@ def engineer_proxy_risk_labels():
     # Weighting prioritizes abundance and vegetation density
     road_segment_gdf["ecological_score"] = (
         0.30 * minmax(road_segment_gdf["sighting_count"])
-        + 0.20 * minmax(road_segment_gdf["mean_ndvi"])
         + 0.15 * minmax(road_segment_gdf["species_richness"])
+        + 0.20 * minmax(road_segment_gdf["mean_ndvi"])
         + 0.15 * minmax(road_segment_gdf["mean_peak_season_weight"])
         + 0.10 * minmax(road_segment_gdf["mean_nocturnal_weight"])
         + 0.10 * minmax(road_segment_gdf["mean_body_mass_weight"])
@@ -268,17 +269,6 @@ def engineer_proxy_risk_labels():
 
     # Final Proxy Label: Rank-transformed to a 0-1 probability scale
     road_segment_gdf["proxy_risk"] = road_segment_gdf["blended_risk"].rank(pct=True)
-
-    # Cleanup intermediate calculation columns before persistence
-    road_segment_gdf = road_segment_gdf.drop(
-        columns=[
-            "ecological_score",
-            "road_exposure_score",
-            "raw_risk",
-            "spatial_lag",
-            "blended_risk",
-        ]
-    )
 
     road_segment_gdf.to_parquet("road_segment_labels.parquet", index=False)
 
