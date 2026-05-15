@@ -9,24 +9,53 @@ from sklearn.model_selection import GroupKFold
 from sklearn.metrics import r2_score, mean_absolute_error
 from esda.moran import Moran
 from libpysal.weights import KNN
-
-segment_gdf = gpd.read_parquet("road_segment_labels.parquet")
+from libpysal.weights.spatial_lag import lag_spatial
 
 
 def main():
+    lag_cols = [
+        "sighting_count",
+        "species_richness",
+        "mean_ndvi",
+        "traffic_proxy",
+    ]
+
+    segment_gdf = gpd.read_parquet("road_segment_labels.parquet")
+
+    segment_gdf = add_spatial_lag_features(segment_gdf, cols=lag_cols)
     model, feature_cols = train_model(segment_gdf)
 
     X, _, _ = get_features_and_target(segment_gdf)
-    mi = evaluate_spatial_autocorrelation(gdf=segment_gdf, model=model, feature_cols=feature_cols)
+    mi = evaluate_spatial_autocorrelation(
+        gdf=segment_gdf, model=model, feature_cols=feature_cols
+    )
 
-    return
     compute_shap(model=model, X=X, feature_cols=feature_cols, gdf=segment_gdf)
 
     score_all_segments(model=model, gdf=segment_gdf, feature_cols=feature_cols)
 
+    joblib.dump(model, "data/model.pkl")
+    joblib.dump(feature_cols, "data/feature_cols.pkl")
 
-    joblib.dump(model, "model.pkl")
-    joblib.dump(feature_cols, "feature_cols.pkl")
+
+def add_spatial_lag_features(
+    gdf: gpd.GeoDataFrame, cols: list, k: int = 5
+) -> gpd.GeoDataFrame:
+    """
+    For each feature column, adds a 'lag_<col>' column = average of
+    that feature across the 5 nearest neighbours.
+
+    This gives XGBoost explicit spatial context as input features,
+    so spatial structure doesn't get left in the residuals.
+    """
+    gdf = gdf.copy()
+    w = KNN.from_dataframe(gdf, k=k)
+    w.transform = "r"
+
+    for col in cols:
+        gdf[f"lag_{col}"] = lag_spatial(w, gdf[col].values)
+
+    return gdf
 
 
 def assign_jittered_blocks(
@@ -153,6 +182,12 @@ def evaluate_spatial_autocorrelation(gdf: gpd.GeoDataFrame, model, feature_cols:
         else "⚠️ Spatial autocorrelation detected in residuals"
     )
 
+    # Confirm autocorrelation in the TARGET itself, not just residuals
+    mi_target = Moran(gdf["proxy_risk"].values, w)
+    print(
+        f"Moran's I on proxy_risk target: {mi_target.I:.4f}  (p={mi_target.p_sim:.4f})"
+    )
+
     return mi
 
 
@@ -166,7 +201,7 @@ def compute_shap(model, X: np.ndarray, feature_cols: list, gdf: gpd.GeoDataFrame
 
     shap_df = pd.DataFrame(shap_values, columns=feature_cols)
     shap_df.insert(0, "road_segment_id", gdf["road_segment_id"].values)
-    shap_df.to_parquet("shap_values.parquet", index=False)
+    shap_df.to_parquet("data/shap_values.parquet", index=False)
 
     print(f"SHAP values saved — shape: {shap_df.shape}")
     return shap_df
@@ -179,7 +214,7 @@ def score_all_segments(model, gdf: gpd.GeoDataFrame, feature_cols: list):
     X = gdf[feature_cols].values
     gdf = gdf.copy()
     gdf["predicted_risk"] = model.predict(X)
-    gdf.to_parquet("road_segments_scored.parquet", index=False)
+    gdf.to_parquet("data/road_segments_scored.parquet", index=False)
     print(f"Scored parquet saved — {len(gdf)} segments")
     return gdf
 

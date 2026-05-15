@@ -20,11 +20,11 @@
 > *"More than 10 million animals die on Australian roads every year."*
 > — [University of Melbourne Research](https://findanexpert.unimelb.edu.au/news/79342-10-million-animals-die-on-our-roads-each-year.-here%E2%80%99s-what-works-(and-what-doesn%E2%80%99t)-to-cut-the-toll)
 
-Australia is home to some of the planet's most extraordinary and irreplaceable wildlife. Kangaroos, koalas, wombats, echidnas, and platypuses — many of them endemic to Australia and found nowhere else on Earth — are being killed in devastating numbers by vehicle collisions every single day. Yet the warning signs meant to alert drivers are placed using decades-old, static processes that ignore real ecological data entirely.
+Australia is home to some of the planet's most extraordinary and irreplaceable wildlife. Kangaroos, koalas, wombats, echidnas, and platypuses — many of these wildlife are an endemic to Australia, but are found nowhere else on Earth. Unfortunately, they are being killed in devastating numbers by vehicle collisions every single day, putting both wild life and human lives at risk. Yet the warning signs meant to alert drivers are placed using decades-old, static processes that ignore real ecological data entirely.
 
 **This project addresses that gap head-on.**
 
-By fusing **413,000+ verified biodiversity occurrence records** across 11 native species with road network topology, vegetation coverage data, and species-specific biological risk factors, this platform generates a **continuous, statistically rigorous 0–1 risk score for every road segment in the country**. The result is a reproducible, dynamically updatable decision-support system that tells road authorities **exactly where to place warning signs** — backed by evidence, not guesswork.
+By fusing **413,000+ verified biodiversity occurrence records** across 11 native species with road network topology, vegetation coverage data, and species-specific biological risk factors, this platform generates a **continuous, statistically rigorous 0–1 risk score for every road segment that had a sighting in the last 6 years in the country**. The result is a reproducible, dynamically updatable decision-support system that tells road authorities **exactly where to place warning signs** — backed by evidence, not guesswork.
 
 This is not a dashboard for viewing historical sightings. It is a **forward-looking risk model** that captures the ecological and infrastructural conditions that cause collisions, identifies those dangerous intersections proactively, and delivers actionable GeoJSON output that plugs directly into existing government GIS workflows.
 
@@ -118,11 +118,11 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
                                  │
                                  ▼
 ╔══════════════════════════════════════════════════════════════════════╗
-║                  MODEL TRAINING  (Colab / Kaggle)                    ║
+║                  MODEL TRAINING  (model.py)                          ║
 ║  XGBoost Regressor                                                   ║
+║  + Spatial lag features added as explicit model inputs (KNN k=5)     ║
 ║  + Stochastic Spatial Block CV (5-fold, jittered ±15km boundaries)   ║
-║  + Optuna hyperparameter tuning (50 trials, maximise spatial R²)     ║
-║  + SHAP TreeExplainer → shap_values.parquet                          ║
+║  + SHAP TreeExplainer → data/shap_values.parquet                     ║
 ║  + Moran's I on residuals → spatial leakage audit                    ║
 ║  Target metrics: spatial CV R² ≥ 0.60 · MAE ≤ 0.08                  ║
 ╚════════════════════════════════╤═════════════════════════════════════╝
@@ -169,7 +169,20 @@ proxy_risk = percentile_rank(blended_risk)
 
 **Why this matters:** The spatial lag makes the label **non-recoverable by formula**. No model can perfectly predict the label by just computing the raw ecological and road scores, because those scores don't contain the neighbourhood context encoded in the lag. This forces the model to learn genuine spatial generalisation patterns rather than memorising the label construction formula.
 
-### 2. Stochastic Spatial Block Cross-Validation
+### 2. Spatial Lag Features as Model Inputs
+
+Beyond embedding spatial context in the proxy label, `model.py` also constructs **explicit spatial lag features** as additional XGBoost inputs. For each of the four key features (`sighting_count`, `species_richness`, `mean_ndvi`, `traffic_proxy`), a `lag_<feature>` column is computed as the KNN(k=5) weighted average of neighbouring segments:
+
+```python
+lag_cols = ["sighting_count", "species_richness", "mean_ndvi", "traffic_proxy"]
+
+for col in lag_cols:
+    gdf[f"lag_{col}"] = lag_spatial(w, gdf[col].values)
+```
+
+This gives XGBoost explicit neighbourhood context as input features, reducing the risk of spatial autocorrelation remaining in the residuals — and is validated afterwards with Moran's I.
+
+### 3. Stochastic Spatial Block Cross-Validation
 
 Standard random CV is catastrophically wrong for spatial data. If a model trains on segments 50m from a test segment, it will appear to generalise when it's actually interpolating. This platform uses **stochastic spatial block CV with jittered boundaries**:
 
@@ -184,15 +197,15 @@ def assign_jittered_blocks(gdf, block_size=50_000, jitter_range=15_000):
 
 Segments near block boundaries rotate between train and test sets across folds. The result is CV metrics that reflect **genuine out-of-sample spatial generalisation** — not interpolation between nearby points.
 
-### 3. Moran's I Residual Validation
+### 4. Moran's I Residual Validation
 
 After training, the platform computes **Moran's I on model residuals** using the same spatial weights matrix. A Moran's I close to 0 (p > 0.05) confirms the model captured the spatial structure of risk, rather than leaving unexplained spatial clustering in the residuals. If Moran's I is significant, the spatial lag blend weight is increased from 0.3 → 0.5 and the model is retrained.
 
-### 4. SHAP Explainability Per Segment
+### 5. SHAP Explainability Per Segment
 
 Every road segment's risk score comes with a full SHAP decomposition. The Streamlit app displays a **waterfall chart** showing exactly which features drove that segment's score up or down — making every prediction auditable and interpretable to non-technical road safety stakeholders.
 
-### 5. Memory-Safe NDVI Raster Processing
+### 6. Memory-Safe NDVI Raster Processing
 
 150 monthly GeoTIFF files (~12GB total) are merged into a single median composite without ever loading more than one block into memory simultaneously. The block-wise windowed approach processes the rasters one spatial tile at a time:
 
@@ -267,12 +280,12 @@ Every tool was chosen deliberately. Here's the reasoning:
 
 | Tool | Why This Tool |
 |---|---|
-| **XGBoost** | Best-in-class performance on tabular data with mixed feature types (continuous ecological + ordinal road class). Handles missing values natively. sklearn-compatible API makes Optuna integration seamless |
+| **XGBoost** | Best-in-class performance on tabular data with mixed feature types (continuous ecological + ordinal road class). Handles missing values natively. sklearn-compatible API |
 | **scikit-learn** | `GroupKFold` is the exact primitive needed for spatial block CV; also provides train/test evaluation utilities |
-| **Optuna** | Bayesian hyperparameter optimisation — far more efficient than grid search over 50 trials. Built-in pruning stops unpromising trials early |
 | **SHAP** | `TreeExplainer` computes exact Shapley values for XGBoost (not kernel approximations), making every per-segment explanation mathematically rigorous |
-| **MLflow** | Tracks hyperparameters, metrics, and model artefacts across all 50 Optuna trials — essential for reproducibility and comparing trial runs |
 | **joblib** | Standard XGBoost/sklearn serialisation; smallest file footprint for Streamlit Community Cloud's 1GB memory limit |
+
+> **Note — Optuna not yet integrated:** The current `model.py` uses hand-tuned fixed hyperparameters (`n_estimators=500`, `learning_rate=0.05`, `max_depth=6`). Optuna-based Bayesian hyperparameter search (50 trials) is planned for a subsequent pass.
 
 ### Application Layer
 
@@ -304,14 +317,19 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 | **3** | Spatial join to road network + state boundaries | Nearest-neighbour join in EPSG:32754; `distance_to_road` column | ✅ Complete |
 | **4** | Feature engineering | NDVI composite; ecological weights; season mapping | ✅ Complete |
 | **5** | Proxy label construction | Ecological × road exposure · spatial lag blend · rank normalisation | ✅ Complete |
-| **6** | Model training (XGBoost + Optuna + SHAP + Moran's I) | Stochastic spatial block CV · 50 Optuna trials · SHAP explanations | 🔄 In Progress |
-| **7** | Sign placement engine | 5km sliding window · Top-K per state · 2km deduplication | ⏳ Pending |
-| **8** | Streamlit + Folium application | Risk heatmap · segment overlay · SHAP waterfall panel | ⏳ Pending |
-| **9** | Model card + METHODOLOGY.md + screen recording | Data provenance · label rationale · Moran's I result · limitations | ⏳ Pending |
+| **6** | Model training (XGBoost + SHAP + Moran's I) | Stochastic spatial block CV · spatial lag input features · SHAP values | ✅ Complete |
+| **7** | Optuna hyperparameter search | 50-trial Bayesian optimisation over spatial CV R² | 🔄 In Progress |
+| **8** | Sign placement engine | 5km sliding window · Top-K per state · 2km deduplication | ⏳ Pending |
+| **9** | Streamlit + Folium application | Risk heatmap · segment overlay · SHAP waterfall panel | ⏳ Pending |
+| **10** | Model card + METHODOLOGY.md + screen recording | Data provenance · label rationale · Moran's I result · limitations | ⏳ Pending |
 
 **Pipeline output so far:**
 - `sightings.parquet` — 413,000 sighting rows · 11 species · 17 features · ~18MB
-- `road_segment_labels.parquet` — Proxy risk score per road segment · ~50MB · ready for model training
+- `road_segment_labels.parquet` — Proxy risk score per road segment · ~52MB
+- `data/model.pkl` — Trained XGBoost model · ~2.4MB
+- `data/feature_cols.pkl` — Serialised feature column list
+- `data/road_segments_scored.parquet` — All segments with `predicted_risk` · ~53MB
+- `data/shap_values.parquet` — Per-segment SHAP decomposition · ~6.4MB
 
 ---
 
@@ -325,7 +343,7 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 | Spatial CV MAE | ≤ 0.08 | On normalised 0–1 scale |
 | Moran's I on residuals | < 0.05 (p > 0.05) | `esda.Moran` with same spatial weights matrix |
 | App initial load time | ≤ 5 seconds | Streamlit Community Cloud benchmark |
-| SHAP coverage | 100% of features | All features present in `shap_values.parquet` |
+| SHAP coverage | 100% of features | All features present in `data/shap_values.parquet` |
 
 ### Impact Targets
 
@@ -376,9 +394,12 @@ python scripts/fetcher.py
 
 # Phase 2 — Spatial joins, NDVI sampling, feature engineering, proxy label
 python scripts/analyzer.py
+
+# Phase 3 — XGBoost training, spatial block CV, SHAP values, Moran's I
+python scripts/model.py
 ```
 
-After both scripts complete, `sightings.parquet` and `road_segment_labels.parquet` will be written to the project root. These are the inputs to model training (Phase 3 — `train.py`, coming soon).
+After all three scripts complete, the full model artefacts will be written to `data/` (see **Pipeline output** above).
 
 ---
 
@@ -388,25 +409,29 @@ After both scripts complete, `sightings.parquet` and `road_segment_labels.parque
 aus-wildlife-roadkill-risk-mapper/
 ├── scripts/
 │   ├── fetcher.py              # ALA/GBIF ingestion · cleaning · road/NDVI preprocessing
-│   └── analyzer.py             # Spatial joins · NDVI sampling · proxy label construction
+│   ├── analyzer.py             # Spatial joins · NDVI sampling · proxy label construction
+│   ├── model.py                # XGBoost training · stochastic block CV · SHAP · Moran's I
+│   └── test.py                 # Scratch validation helpers
 ├── data/
 │   ├── blueprint.md            # Full technical design document
-│   ├── steps.md                # Step-by-step implementation guide (Phase 1 onwards)
+│   ├── model.pkl               # Trained XGBoost model (~2.4MB)
+│   ├── feature_cols.pkl        # Serialised feature column list
+│   ├── road_segments_scored.parquet   # All segments with predicted_risk (~53MB)
+│   ├── shap_values.parquet     # Per-segment SHAP decomposition (~6.4MB)
 │   ├── raw/                    # Shapefiles, GeoPackage, NDVI rasters (gitignored)
-│   └── processed/              # Intermediate parquet and tif outputs (gitignored)
-├── notebooks/                  # Exploratory analysis and training notebooks
-├── backup/                     # Per-species parquet backups before merge
-├── sightings.parquet           # Final feature store — 413k rows, 17 features (gitignored)
-├── road_segment_labels.parquet # Proxy risk score per segment (gitignored)
+│   └── processed/              # Intermediate projected parquets and tif (gitignored)
+├── notebooks/
+│   └── test.ipynb              # Exploratory scratch notebook
+├── sightings/                  # Per-species parquet files (11 files, one per species)
+├── sightings.parquet           # Final feature store — 413k rows, 17 features (~18MB)
+├── road_segment_labels.parquet # Proxy risk score per segment (~52MB)
 ├── requirements.txt
 └── LICENSE
 ```
 
-**Upcoming (Phases 3–5):**
+**Upcoming Changes:**
 ```
 ├── scripts/
-│   ├── train.py                # XGBoost + Optuna + SHAP + Moran's I
-│   ├── score_roads.py          # Apply model to all road segments
 │   └── sign_placement.py       # Sliding-window sign placement engine
 ├── app/
 │   ├── streamlit_app.py        # Main application entry point
@@ -414,8 +439,6 @@ aus-wildlife-roadkill-risk-mapper/
 │       ├── map_view.py         # Folium map builder
 │       ├── shap_panel.py       # Per-segment SHAP waterfall charts
 │       └── stats_panel.py      # National statistics summary
-├── models/
-│   └── model.joblib            # Trained XGBoost model
 └── METHODOLOGY.md              # Model card + data provenance + known limitations
 ```
 
