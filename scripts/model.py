@@ -7,6 +7,8 @@ import geopandas as gpd
 from xgboost import XGBRegressor
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import r2_score, mean_absolute_error
+from esda.moran import Moran
+from libpysal.weights import KNN
 
 segment_gdf = gpd.read_parquet("road_segment_labels.parquet")
 
@@ -15,9 +17,13 @@ def main():
     model, feature_cols = train_model(segment_gdf)
 
     X, _, _ = get_features_and_target(segment_gdf)
+    mi = evaluate_spatial_autocorrelation(gdf=segment_gdf, model=model, feature_cols=feature_cols)
+
+    return
     compute_shap(model=model, X=X, feature_cols=feature_cols, gdf=segment_gdf)
 
     score_all_segments(model=model, gdf=segment_gdf, feature_cols=feature_cols)
+
 
     joblib.dump(model, "model.pkl")
     joblib.dump(feature_cols, "feature_cols.pkl")
@@ -124,6 +130,30 @@ def train_model(gdf: gpd.GeoDataFrame, n_folds: int = 5):
     model.fit(X, y)
 
     return model, feature_cols
+
+
+def evaluate_spatial_autocorrelation(gdf: gpd.GeoDataFrame, model, feature_cols: list):
+    """
+    Moran's I close to 0 (p > 0.05) = residuals are spatially random
+    = model learned feature relationships, not just proximity
+    """
+    X = gdf[feature_cols].values
+    gdf = gdf.copy()
+    gdf["predicted_risk"] = model.predict(X)
+    gdf["residual"] = gdf["predicted_risk"] - gdf["proxy_risk"]
+
+    w = KNN.from_dataframe(gdf, k=5)
+    w.transform = "r"
+
+    mi = Moran(gdf["residual"].values, w)
+    print(f"Moran's I on residuals: {mi.I:.4f}  (p={mi.p_sim:.4f})")
+    print(
+        "✅ No spatial leakage"
+        if mi.p_sim > 0.05
+        else "⚠️ Spatial autocorrelation detected in residuals"
+    )
+
+    return mi
 
 
 def compute_shap(model, X: np.ndarray, feature_cols: list, gdf: gpd.GeoDataFrame):
