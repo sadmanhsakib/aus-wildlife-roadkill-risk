@@ -21,14 +21,16 @@ def main():
     ]
 
     segment_gdf = gpd.read_parquet("road_segment_labels.parquet")
-
     segment_gdf = add_spatial_lag_features(segment_gdf, cols=lag_cols)
+
     model, feature_cols = train_model(segment_gdf)
 
     X, _, _ = get_features_and_target(segment_gdf)
-    mi = evaluate_spatial_autocorrelation(
+    evaluate_spatial_autocorrelation(
         gdf=segment_gdf, model=model, feature_cols=feature_cols
     )
+
+    validate_geographic_holdout(segment_gdf, lag_cols=lag_cols, holdout_state="TAS")
 
     compute_shap(model=model, X=X, feature_cols=feature_cols, gdf=segment_gdf)
 
@@ -60,7 +62,7 @@ def add_spatial_lag_features(
 
 def assign_jittered_blocks(
     gdf: gpd.GeoDataFrame, block_size: int = 50_000, jitter_range: int = 15_000
-) -> pd.series:
+) -> pd.Series:
     """
     Assigns each road segment to a spatial block with jittered boundaries.
 
@@ -135,22 +137,19 @@ def train_model(gdf: gpd.GeoDataFrame, n_folds: int = 5):
     cv_r2_scores = []
     cv_mae_scores = []
 
-    for fold in range(n_folds):
-        # fresh jitter each fold — this is what makes it stochastic
-        block_ids = assign_jittered_blocks(gdf)
-        groups = block_ids.values
+    block_ids = assign_jittered_blocks(gdf)
+    groups = block_ids.values
+    gkf = GroupKFold(n_splits=n_folds)
 
-        gkf = GroupKFold(n_splits=n_folds)
+    for train_idx, test_idx in gkf.split(X, y, groups):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
 
-        for train_idx, test_idx in gkf.split(X, y, groups):
-            X_train, X_test = X[train_idx], X[test_idx]
-            y_train, y_test = y[train_idx], y[test_idx]
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
 
-            model.fit(X_train, y_train)
-            preds = model.predict(X_test)
-
-            cv_r2_scores.append(r2_score(y_test, preds))
-            cv_mae_scores.append(mean_absolute_error(y_test, preds))
+        cv_r2_scores.append(r2_score(y_test, preds))
+        cv_mae_scores.append(mean_absolute_error(y_test, preds))
 
     print(f"Spatial CV R²:  {np.mean(cv_r2_scores):.4f} ± {np.std(cv_r2_scores):.4f}")
     print(f"Spatial CV MAE: {np.mean(cv_mae_scores):.4f} ± {np.std(cv_mae_scores):.4f}")
@@ -189,6 +188,100 @@ def evaluate_spatial_autocorrelation(gdf: gpd.GeoDataFrame, model, feature_cols:
     )
 
     return mi
+
+
+def validate_geographic_holdout(
+    gdf: gpd.GeoDataFrame,
+    lag_cols: list,
+    holdout_state: str = "TAS",
+    n_folds: int = 5,
+):
+    """
+    Retrains the model on all states except holdout_state, predicts on
+    the holdout, then validates against raw sighting_count — an independent
+    observational signal never directly used in proxy_risk construction.
+
+    This partially breaks the proxy label circularity: the model has never
+    seen the holdout region during training, so correlation with sighting
+    density there constitutes independent geographic validation.
+    """
+    from scipy.stats import spearmanr
+
+    # Split BEFORE adding lag features
+    # Drop existing lag columns first — recompute on train only
+    lag_feature_cols = [c for c in gdf.columns if c.startswith("lag_")]
+    gdf_clean = gdf.drop(columns=lag_feature_cols)
+
+    train_gdf = gdf_clean[gdf_clean["state"] != holdout_state].copy()
+    holdout_gdf = gdf_clean[gdf_clean["state"] == holdout_state].copy()
+
+    train_gdf = add_spatial_lag_features(train_gdf, cols=lag_cols)
+    holdout_gdf = add_spatial_lag_features(holdout_gdf, cols=lag_cols)
+
+    print(f"\nGeographic holdout validation — {holdout_state}")
+    print(f"  Train segments : {len(train_gdf)}")
+    print(f"  Holdout segments: {len(holdout_gdf)}")
+
+    # Retrain on mainland only
+    X_train, y_train, feature_cols = get_features_and_target(train_gdf)
+    X_holdout, _, _ = get_features_and_target(holdout_gdf)
+
+    holdout_model = XGBRegressor(
+        n_estimators=500,
+        learning_rate=0.05,
+        max_depth=6,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=67,
+        n_jobs=-1,
+    )
+
+    # Spatial block CV on training data only
+    cv_r2, cv_mae = [], []
+
+    block_ids = assign_jittered_blocks(train_gdf)
+    groups = block_ids.values
+    gkf = GroupKFold(n_splits=n_folds)
+
+    for train_idx, test_idx in gkf.split(X_train, y_train, groups):
+        holdout_model.fit(X_train[train_idx], y_train[train_idx])
+        preds = holdout_model.predict(X_train[test_idx])
+        cv_r2.append(r2_score(y_train[test_idx], preds))
+        cv_mae.append(mean_absolute_error(y_train[test_idx], preds))
+
+    print(f"  Mainland CV R²:  {np.mean(cv_r2):.4f} ± {np.std(cv_r2):.4f}")
+    print(f"  Mainland CV MAE: {np.mean(cv_mae):.4f} ± {np.std(cv_mae):.4f}")
+
+    # Final fit on all mainland data
+    holdout_model.fit(X_train, y_train)
+
+    # Predict on Tasmania
+    holdout_gdf["predicted_risk"] = holdout_model.predict(X_holdout)
+
+    # After predicting on holdout_gdf
+
+    # 1. Ceiling
+    ceiling, _ = spearmanr(holdout_gdf["proxy_risk"], holdout_gdf["sighting_count"])
+
+    # 2. Model vs sighting count
+    corr, pval = spearmanr(holdout_gdf["predicted_risk"], holdout_gdf["sighting_count"])
+
+    # 3. Direct generalisation
+    direct, _ = spearmanr(holdout_gdf["predicted_risk"], holdout_gdf["proxy_risk"])
+
+    print(f"\n  Ceiling (proxy_risk vs sighting_count):       {ceiling:.4f}")
+    print(f"  Model  (predicted_risk vs sighting_count):    {corr:.4f}  (p={pval:.4f})")
+    print(f"  % of ceiling achieved:                        {corr/ceiling*100:.1f}%")
+    print(f"  Direct (predicted_risk vs proxy_risk):        {direct:.4f}")
+
+    if corr / ceiling > 0.90:
+        print("  ✅ Strong geographic generalisation")
+    elif corr / ceiling > 0.70:
+        print("  ⚠️ Moderate geographic generalisation")
+    else:
+        print("  ❌ Weak geographic generalisation")
+
+    return holdout_gdf, corr, pval
 
 
 def compute_shap(model, X: np.ndarray, feature_cols: list, gdf: gpd.GeoDataFrame):
