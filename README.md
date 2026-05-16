@@ -15,6 +15,10 @@
 
 ---
 
+> 📖 **Technical Approach & Methodology:** For data scientists and engineers interested in the research design—including the proxy risk label formulation, spatial lag mechanics, stochastic spatial block CV, and spatial autocorrelation (Moran's I) diagnostics—please refer directly to the detailed **[METHODOLOGY.md](METHODOLOGY.md)**.
+
+---
+
 ## 🌿 Why This Project Exists
 
 > *"More than 10 million animals die on Australian roads every year."*
@@ -63,15 +67,15 @@ Each species carries three calibrated biological weights that feed directly into
 The platform is a sequential, modular pipeline — from raw API calls to a live deployed application:
 
 ```
-╔══════════════════════════════════════════════════════════════════════╗
-║                          DATA SOURCES                                ║
+╔═══════════════════════════════════════════════════════════════════════╗
+║                          DATA SOURCES                                 ║
 ║   ALA REST API          GBIF REST API          NASA AppEEARS          ║
 ║   (Australian Living   (Global Biodiversity    (MODIS MOD13A3         ║
 ║    Atlas – async)       Information Facility)   monthly NDVI rasters) ║
-║                                                                      ║
-║              GeoFabrik OSM                ABS Shapefiles             ║
-║          (Australia road network)     (State boundary polygons)      ║
-╚════════════════════════════════╤═════════════════════════════════════╝
+║                                                                       ║
+║              GeoFabrik OSM                ABS Shapefiles              ║
+║          (Australia road network)     (State boundary polygons)       ║
+╚════════════════════════════════╤══════════════════════════════════════╝
                                  │
                                  ▼
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -87,7 +91,7 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
                                  ▼
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                    analyzer.py — SPATIAL ENRICHMENT                  ║
-║  • Sightings → GeoDataFrame (WGS84 → EPSG:32754)                    ║
+║  • Sightings → GeoDataFrame (WGS84 → EPSG:32754)                     ║
 ║  • Spatial join to state boundaries (within predicate)               ║
 ║  • Nearest-neighbour join to road segments (distance_to_road)        ║
 ║  • NDVI sampling at each point (rasterio sample_gen)                 ║
@@ -112,8 +116,8 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
 ║  3. road_exposure    = f(speed, traffic, proximity)                  ║
 ║  4. raw_risk         = ecological_score × road_exposure              ║
 ║  5. spatial_lag      = KNN(k=5) weighted avg of neighbours           ║
-║  6. blended_risk     = 0.7 × raw_risk + 0.3 × spatial_lag           ║
-║  7. proxy_risk       = percentile_rank(blended_risk)  →  [0, 1]     ║
+║  6. blended_risk     = 0.7 × raw_risk + 0.3 × spatial_lag            ║
+║  7. proxy_risk       = percentile_rank(blended_risk)  →  [0, 1]      ║
 ╚════════════════════════════════╤═════════════════════════════════════╝
                                  │
                                  ▼
@@ -124,7 +128,7 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
 ║  + Stochastic Spatial Block CV (5-fold, jittered ±15km boundaries)   ║
 ║  + SHAP TreeExplainer → data/shap_values.parquet                     ║
 ║  + Moran's I on residuals → spatial leakage audit                    ║
-║  Target metrics: spatial CV R² ≥ 0.60 · MAE ≤ 0.08                  ║
+║  Target metrics: spatial CV R² ≥ 0.60 · MAE ≤ 0.08                   ║
 ╚════════════════════════════════╤═════════════════════════════════════╝
                                  │
                                  ▼
@@ -374,48 +378,6 @@ feature relationships, not geographic memorisation.**
 
 ---
 
-## ⚠️ Methodological Limitations
-
-### Why Real Collision Data Was Not Used
-
-Approximately 10 million wildlife-vehicle collisions occur annually in Australia.
-iNaturalist — the most comprehensive open platform available — contains only ~15,000
-confirmed roadkill records across 570+ species over the duration of last 5 years: a detection rate of
-**~0.03%** relative to estimated annual frequency. State road authority collision
-databases are fragmented and not easily accessible. No national standardised
-roadkill monitoring program exists. Direct supervised learning is structurally
-infeasible, not an engineering limitation.
-
-### Proxy Label & Its Known Circularity
-
-`proxy_risk` is constructed from the same feature space used to train the model.
-The spatial CV R² of 0.97 therefore partially reflects formula recovery rather than
-purely emergent predictive generalisation. This circularity is partially broken by
-two mechanisms: spatial lag blending encodes neighbourhood corridor context no
-individual segment's features can reproduce, and the Tasmania holdout validation
-confirms the model generalises to unseen geography at r = 0.98.
-
-This model is a **relative risk ranking tool**, not a collision frequency predictor.
-Predictions are most defensibly interpreted as: *"this segment ranks in the Nth
-percentile of collision risk nationally given available ecological and infrastructure
-evidence."*
-
-### Residual Spatial Autocorrelation
-
-Moran's I on model residuals is 0.3081 against a target Moran's I of 0.4117 in the
-proxy label — meaning the model absorbed 25.2% of the target's spatial
-autocorrelation using tabular features alone, with no access to explicit coordinates
-or spatial position. Residual autocorrelation of 0.3081 reflects unobserved landscape
-covariates absent from open data sources: terrain complexity, fencing density, and
-seasonal migration corridor structure. This is consistent with known limitations of
-proxy-label ecological modelling at continental scale.
-
-Reporting Moran's I on residuals as a spatial leakage diagnostic — rather than
-relying solely on R² and MAE — follows spatial econometric best practice and
-distinguishes genuine feature-driven generalisation from proximity-based memorisation.
-
----
-
 ## 🚀 Setup & Usage
 
 ### Prerequisites
@@ -471,14 +433,11 @@ aus-wildlife-roadkill-risk-mapper/
 │   ├── analyzer.py             # Spatial joins · NDVI sampling · proxy label construction
 │   ├── model.py                # XGBoost training · stochastic block CV · SHAP · Moran's I
 │   └── test.py                 # Scratch validation helpers
-├── data/
+├── data/  (gitignored)
 │   ├── blueprint.md            # Full technical design document
-│   ├── model.pkl               # Trained XGBoost model (~2.4MB)
-│   ├── feature_cols.pkl        # Serialised feature column list
-│   ├── road_segments_scored.parquet   # All segments with predicted_risk (~53MB)
-│   ├── shap_values.parquet     # Per-segment SHAP decomposition (~6.4MB)
-│   ├── raw/                    # Shapefiles, GeoPackage, NDVI rasters (gitignored)
-│   └── processed/              # Intermediate projected parquets and tif (gitignored)
+│   ├── model/                  # Model, features, SHAP values, road segments scored
+│   └── processed/              # Intermediate projected parquets and tif
+│   ├── raw/                    # Shapefiles, GeoPackage, NDVI rasters
 ├── notebooks/
 │   └── test.ipynb              # Exploratory scratch notebook
 ├── sightings/                  # Per-species parquet files (11 files, one per species)
