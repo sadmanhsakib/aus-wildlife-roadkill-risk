@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import shap
+import optuna
 from xgboost import XGBRegressor
 from esda.moran import Moran
 from sklearn.model_selection import GroupKFold
@@ -232,6 +233,76 @@ def run_spatial_cv(
     return cv_r2_scores, cv_mae_scores
 
 
+def optimize_hyperparameters(
+    gdf: gpd.GeoDataFrame,
+    X: np.ndarray,
+    y: np.ndarray,
+    n_trials: int = 50,
+) -> dict:
+    """
+    Runs an Optuna hyperparameter search using spatial block CV as the objective.
+
+    Args:
+        gdf: GeoDataFrame containing spatial coordinates for block assignment.
+        X: Feature matrix.
+        y: Target vector.
+        n_trials: Number of Optuna trials to run.
+
+    Returns:
+        Dictionary of best hyperparameters found.
+    """
+    def objective(trial: optuna.Trial) -> float:
+        """
+        Optuna objective function for XGBoost hyperparameter optimisation.
+
+        Called once per trial. Samples a hyperparameter config, evaluates it across
+        multiple spatial partitions (jitter seeds), and returns the mean R² across
+        all folds and seeds. Optuna maximises this value.
+
+        The multi-seed loop is critical: each seed produces a different jittered
+        spatial partition. Averaging across 5 seeds × 5 folds = 25 scores ensures
+        the returned metric reflects genuine model quality, not a lucky grid split.
+
+        Args:
+            trial: Optuna trial object used to sample hyperparameters.
+
+        Returns:
+            Mean R² across all spatial CV folds and jitter seeds (higher is better).
+        """
+        params = {
+            "n_estimators": trial.suggest_int("n_estimators", 100, 1000, step=100), # Number of boosting rounds (trees)
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True), # Step size shrinkage to prevent overfitting
+            "max_depth": trial.suggest_int("max_depth", 3, 9), # Maximum tree depth
+            "subsample": trial.suggest_float("subsample", 0.5, 1.0), # Fraction of samples used per tree
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0), # Fraction of features used per tree
+            "random_state": 67, # Seed for reproducibility
+            "n_jobs": -1, # Utilize all available CPU cores
+        }
+        
+        model = XGBRegressor(**params)
+        
+        all_r2_scores = []
+        for seed in range(5):
+            cv_r2, _ = run_spatial_cv(gdf, X, y, model, n_folds=5)
+            all_r2_scores.extend(cv_r2)
+        
+        return np.mean(all_r2_scores)
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=67),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+
+    print(f"\nOptuna search complete — {n_trials} trials")
+    print(f"  Best CV R² : {study.best_value:.4f}")
+    print(f"  Best params: {study.best_params}")
+
+    return study.best_params
+
+
 def train_model(
     gdf: gpd.GeoDataFrame, X: np.ndarray, y: np.ndarray, n_folds: int = 5
 ) -> XGBRegressor:
@@ -252,13 +323,13 @@ def train_model(
     """
     # Initialize XGBoost Regressor with tuned hyperparameters
     model = XGBRegressor(
-        n_estimators=500,        # Number of boosting rounds (trees)
-        learning_rate=0.05,      # Step size shrinkage to prevent overfitting
-        max_depth=6,             # Maximum tree depth
-        subsample=0.8,           # Fraction of samples used per tree
-        colsample_bytree=0.8,    # Fraction of features used per tree
-        random_state=67,         # Seed for reproducibility
-        n_jobs=-1,               # Utilize all available CPU cores
+        n_estimators=600,
+        learning_rate=0.030855509013861318,
+        max_depth=8,
+        subsample=0.6477704984299354,
+        colsample_bytree=0.7398024903848721,
+        random_state=67,
+        n_jobs=-1,
     )
 
     cv_r2_scores, cv_mae_scores = run_spatial_cv(gdf, X, y, model, n_folds=n_folds)
@@ -366,11 +437,11 @@ def validate_geographic_holdout(
     X_holdout, _, _ = get_features_and_target(holdout_gdf)
 
     holdout_model = XGBRegressor(
-        n_estimators=500,
-        learning_rate=0.05,
-        max_depth=6,
-        subsample=0.8,
-        colsample_bytree=0.8,
+        n_estimators=1000,
+        learning_rate=0.01710735120891374,
+        max_depth=9,
+        subsample=0.5010581179689328,
+        colsample_bytree=0.9120399199219775,
         random_state=67,
         n_jobs=-1,
     )
