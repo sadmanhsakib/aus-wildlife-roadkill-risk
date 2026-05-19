@@ -6,16 +6,16 @@ composite risk scores for Australian road segments. It generates proxy labels
 for machine learning models by combining ecological suitability with road exposure.
 """
 
-import fetcher
-import time, gc, os
+import gc, os, time
 import rasterio
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-from libpysal.weights import KNN, lag_spatial
 import matplotlib.pyplot as plt
 import seaborn as sns
+from libpysal.weights import KNN, lag_spatial
 from rasterio.sample import sample_gen
+import fetcher
 
 
 LATITUDE_COLUMN = "latitude"

@@ -66,7 +66,7 @@ Each species carries three calibrated biological weights that feed directly into
 
 The platform is a sequential, modular pipeline — from raw API calls to a live deployed application:
 
-```
+```text
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║                          DATA SOURCES                                 ║
 ║   ALA REST API          GBIF REST API          NASA AppEEARS          ║
@@ -426,7 +426,7 @@ After all three scripts complete, the full model artefacts will be written to `d
 
 ## 📁 Project Structure
 
-```
+```text
 aus-wildlife-roadkill-risk-mapper/
 ├── scripts/
 │   ├── fetcher.py              # ALA/GBIF ingestion · cleaning · road/NDVI preprocessing
@@ -448,7 +448,7 @@ aus-wildlife-roadkill-risk-mapper/
 ```
 
 **Upcoming Changes:**
-```
+```text
 ├── scripts/
 │   └── sign_placement.py       # Sliding-window sign placement engine
 ├── app/
@@ -483,7 +483,7 @@ Results are reprojected back to **EPSG:4326** (WGS84 geographic) for Streamlit/F
 
 The `ecological_score` uses a weighted combination of five normalised features:
 
-```
+```text
 ecological_score =
   0.30 × norm(sighting_count)        # abundance at this segment
 + 0.20 × norm(mean_ndvi)             # habitat quality
@@ -495,7 +495,7 @@ ecological_score =
 
 The `road_exposure_score` encodes the infrastructure danger:
 
-```
+```text
 road_exposure_score =
   0.35 × norm(speed_limit)           # kinetic energy of potential collision
 + 0.35 × norm(proximity)             # how close animals get to the road

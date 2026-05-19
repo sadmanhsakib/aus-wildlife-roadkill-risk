@@ -13,7 +13,7 @@ want to understand the reasoning behind the system, not just its outputs.
 
 Wildlife-vehicle collision risk modelling is a supervised learning problem with
 no reliable supervisory signal. Approximately 10 million animals die on Australian
-roads annually, yet iNaturalist — the most comprehensive open citizen-science
+roads annually, yet [iNaturalist](https://inaturalist.ala.org.au/projects/australia-s-untold-roadtoll-recording-roadkill-and-road-trauma) — the most comprehensive open citizen-science
 platform available — contains only ~15,000 confirmed roadkill observations across
 570+ species accumulated over 5 years. This represents a detection rate of
 approximately 0.03% relative to estimated annual collision frequency.
@@ -22,8 +22,8 @@ This sparsity is structural, not an engineering failure. Roadkill events are
 transient, geographically dispersed across 900,000+ km of road network, and
 entirely dependent on opportunistic observer presence at the moment of discovery.
 Formal collision databases maintained by state road authorities are fragmented,
-inconsistently recorded across jurisdictions, and not publicly accessible under
-open data licences. No national standardised roadkill monitoring programme exists
+inconsistently recorded across jurisdictions, and not easily accessible under
+open data licences. No national standardised roadkill monitoring program exists
 in Australia at the time of writing.
 
 Direct supervised learning — train a model to predict collision counts from road
@@ -59,7 +59,7 @@ Species were selected to satisfy four simultaneous criteria:
 - **Ecological significance** — endemic Australian fauna with conservation concern
 - **Collision severity** — body mass large enough to cause vehicle damage or fatality
 - **Road proximity** — documented movement patterns that intersect road networks
-- **Data availability** — sufficient verified occurrence records in ALA and GBIF
+- **Data availability** — sufficient verified occurrence records in [ALA](https://www.ala.org.au/) and [GBIF](https://www.gbif.org/)
   to produce segment-level sighting density after spatial aggregation
 
 The 11 selected species (red kangaroo, eastern grey kangaroo, swamp wallaby,
@@ -81,7 +81,7 @@ in meaningful numbers. Taking the union (deduplicated on exact coordinates, mont
 and year) achieves greater spatial coverage than either source alone, particularly
 for remote regions underrepresented in citizen science data.
 
-### 2.3 Temporal Window — 2020 to 2026
+### 2.3 Temporal Window — 2021 to 2026
 
 The six-year window was chosen to balance three competing constraints:
 
@@ -132,7 +132,7 @@ are missing — a known limitation acknowledged in Section 7.
 
 The ecological score is a weighted sum of five normalised components:
 
-```
+```text
 ecological_score =
   0.30 × norm(sighting_count)
 + 0.20 × norm(mean_ndvi)
@@ -159,7 +159,7 @@ to outlier influence in the raw components.
 
 ### 3.2 Road Exposure Score — Weight Rationale
 
-```
+```text
 road_exposure_score =
   0.35 × norm(speed_limit)
 + 0.35 × norm(proximity)
@@ -191,7 +191,7 @@ modelling the logical AND relationship between the two risk conditions.
 
 ### 3.4 Spatial Lag Blending — Why 70/30
 
-```
+```text
 blended_risk = 0.7 × raw_risk + 0.3 × spatial_lag
 ```
 
@@ -416,7 +416,7 @@ sighting density signal.
 
 ### 6.6 Interpreting the Holdout Results
 
-```
+```text
 Ceiling (proxy_risk vs sighting_count in TAS):      0.3001
 Model   (predicted_risk vs sighting_count in TAS):  0.2929
 % of ceiling achieved:                              97.6%
