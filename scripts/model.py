@@ -52,15 +52,14 @@ def main() -> None:
     print("Adding spatial lag features...")
     segment_gdf = add_spatial_lag_features(segment_gdf, cols=lag_cols)
 
-    print("Training XGBoost model...")
-    model, feature_cols = train_model(segment_gdf)
+    # Extract features and target once to avoid redundant computations
+    X, y, feature_cols = get_features_and_target(segment_gdf)
 
-    X, _, _ = get_features_and_target(segment_gdf)
+    print("Training XGBoost model...")
+    model = train_model(segment_gdf, X, y)
     
     print("Evaluating spatial autocorrelation...")
-    evaluate_spatial_autocorrelation(
-        gdf=segment_gdf, model=model, feature_cols=feature_cols
-    )
+    evaluate_spatial_autocorrelation(gdf=segment_gdf, model=model, X=X)
 
     validate_geographic_holdout(segment_gdf, lag_cols=lag_cols, holdout_state="TAS")
 
@@ -68,7 +67,7 @@ def main() -> None:
     compute_shap(model=model, X=X, feature_cols=feature_cols, gdf=segment_gdf)
 
     print("Scoring all segments...")
-    score_all_segments(model=model, gdf=segment_gdf, feature_cols=feature_cols)
+    score_all_segments(model=model, gdf=segment_gdf, X=X)
 
     print("Saving model artifacts...")
     joblib.dump(model, "data/model.pkl")
@@ -185,35 +184,31 @@ def get_features_and_target(
     return X, y, feature_cols
 
 
-def train_model(
-    gdf: gpd.GeoDataFrame, n_folds: int = 5
-) -> Tuple[XGBRegressor, List[str]]:
+def run_spatial_cv(
+    gdf: gpd.GeoDataFrame,
+    X: np.ndarray,
+    y: np.ndarray,
+    model: XGBRegressor,
+    n_folds: int = 5,
+) -> Tuple[List[float], List[float]]:
     """
-    Trains an XGBoost regression model using stochastic spatial block cross-validation.
+    Runs spatial block cross-validation using GroupKFold with jittered boundaries.
 
-    Evaluates model performance across spatially distinct folds to ensure 
-    generalisability, then refits the model on the entire dataset.
+    Ensures that spatial clusters of segments are kept intact in the same folds,
+    preventing spatial data leakage during CV evaluation.
 
     Args:
-        gdf: GeoDataFrame containing training data.
-        n_folds: Number of cross-validation folds.
+        gdf: GeoDataFrame containing spatial coordinates for grouping.
+        X: Feature matrix.
+        y: Target vector.
+        model: The model structure to train and evaluate.
+        n_folds: Number of splits/folds for cross-validation.
 
     Returns:
-        A tuple containing the fully trained XGBoost model and the list of feature names.
+        A tuple containing:
+        - cv_r2_scores: List of R² scores for each fold.
+        - cv_mae_scores: List of MAE scores for each fold.
     """
-    X, y, feature_cols = get_features_and_target(gdf)
-
-    # Initialize XGBoost Regressor with tuned hyperparameters
-    model = XGBRegressor(
-        n_estimators=500,        # Number of boosting rounds (trees)
-        learning_rate=0.05,      # Step size shrinkage to prevent overfitting
-        max_depth=6,             # Maximum tree depth
-        subsample=0.8,           # Fraction of samples used per tree
-        colsample_bytree=0.8,    # Fraction of features used per tree
-        random_state=67,         # Seed for reproducibility
-        n_jobs=-1,               # Utilize all available CPU cores
-    )
-
     cv_r2_scores = []
     cv_mae_scores = []
 
@@ -234,17 +229,51 @@ def train_model(
         cv_r2_scores.append(r2_score(y_test, preds))
         cv_mae_scores.append(mean_absolute_error(y_test, preds))
 
+    return cv_r2_scores, cv_mae_scores
+
+
+def train_model(
+    gdf: gpd.GeoDataFrame, X: np.ndarray, y: np.ndarray, n_folds: int = 5
+) -> XGBRegressor:
+    """
+    Trains an XGBoost regression model using stochastic spatial block cross-validation.
+
+    Evaluates model performance across spatially distinct folds to ensure 
+    generalisability, then refits the model on the entire dataset.
+
+    Args:
+        gdf: GeoDataFrame containing training data.
+        X: Feature matrix.
+        y: Target vector.
+        n_folds: Number of cross-validation folds.
+
+    Returns:
+        The fully trained XGBoost model.
+    """
+    # Initialize XGBoost Regressor with tuned hyperparameters
+    model = XGBRegressor(
+        n_estimators=500,        # Number of boosting rounds (trees)
+        learning_rate=0.05,      # Step size shrinkage to prevent overfitting
+        max_depth=6,             # Maximum tree depth
+        subsample=0.8,           # Fraction of samples used per tree
+        colsample_bytree=0.8,    # Fraction of features used per tree
+        random_state=67,         # Seed for reproducibility
+        n_jobs=-1,               # Utilize all available CPU cores
+    )
+
+    cv_r2_scores, cv_mae_scores = run_spatial_cv(gdf, X, y, model, n_folds=n_folds)
+
     print(f"Spatial CV R²:  {np.mean(cv_r2_scores):.4f} ± {np.std(cv_r2_scores):.4f}")
     print(f"Spatial CV MAE: {np.mean(cv_mae_scores):.4f} ± {np.std(cv_mae_scores):.4f}")
 
     # Refit the model on the full dataset for deployment
     model.fit(X, y)
 
-    return model, feature_cols
+    return model
 
 
 def evaluate_spatial_autocorrelation(
-    gdf: gpd.GeoDataFrame, model: XGBRegressor, feature_cols: List[str]
+    gdf: gpd.GeoDataFrame, model: XGBRegressor, X: np.ndarray
 ) -> Moran:
     """
     Evaluates spatial autocorrelation in the model's residuals using Moran's I.
@@ -257,12 +286,11 @@ def evaluate_spatial_autocorrelation(
     Args:
         gdf: GeoDataFrame containing the data.
         model: Trained regression model.
-        feature_cols: List of features used by the model.
+        X: Feature matrix.
 
     Returns:
         Moran's I test results object.
     """
-    X = gdf[feature_cols].values
     gdf = gdf.copy()
     gdf["predicted_risk"] = model.predict(X)
     
@@ -348,16 +376,7 @@ def validate_geographic_holdout(
     )
 
     # Perform spatial block CV on training data to assess mainland performance
-    cv_r2, cv_mae = [], []
-    block_ids = assign_jittered_blocks(train_gdf)
-    groups = block_ids.values
-    gkf = GroupKFold(n_splits=n_folds)
-
-    for train_idx, test_idx in gkf.split(X_train, y_train, groups):
-        holdout_model.fit(X_train[train_idx], y_train[train_idx])
-        preds = holdout_model.predict(X_train[test_idx])
-        cv_r2.append(r2_score(y_train[test_idx], preds))
-        cv_mae.append(mean_absolute_error(y_train[test_idx], preds))
+    cv_r2, cv_mae = run_spatial_cv(train_gdf, X_train, y_train, holdout_model, n_folds=n_folds)
 
     print(f"  Mainland CV R²:  {np.mean(cv_r2):.4f} ± {np.std(cv_r2):.4f}")
     print(f"  Mainland CV MAE: {np.mean(cv_mae):.4f} ± {np.std(cv_mae):.4f}")
@@ -430,7 +449,7 @@ def compute_shap(
 
 
 def score_all_segments(
-    model: XGBRegressor, gdf: gpd.GeoDataFrame, feature_cols: List[str]
+    model: XGBRegressor, gdf: gpd.GeoDataFrame, X: np.ndarray
 ) -> gpd.GeoDataFrame:
     """
     Scores all road segments using the trained model and saves the output.
@@ -438,12 +457,11 @@ def score_all_segments(
     Args:
         model: Fully trained XGBoost model.
         gdf: GeoDataFrame containing all road segments.
-        feature_cols: List of features required by the model.
+        X: Feature matrix.
 
     Returns:
         GeoDataFrame updated with a 'predicted_risk' column.
     """
-    X = gdf[feature_cols].values
     gdf = gdf.copy()
     
     # Generate risk scores for the entire dataset
