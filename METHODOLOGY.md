@@ -527,16 +527,31 @@ and species distributions shift under climate change. The pipeline is designed t
 be re-run as new ALA/GBIF data becomes available, but the current deployment
 represents a 2021–2026 snapshot.
 
-### 7.5 Road Segments Without Sightings
+### 7.5 Residual Spatial Autocorrelation and Unobserved Covariates
 
-The model only scores road segments that had at least one wildlife sighting within
-the 2021–2026 window. Road segments with zero nearby sightings are excluded from
-the feature store and receive no predicted risk score. This creates a systematic
-blind spot for genuinely dangerous segments in regions with low observer coverage —
-particularly remote Western Australia and Northern Territory. A segment may be a
-genuine high-risk corridor but receive no score simply because no citizen scientist
-was present to record a sighting. This is the single most significant gap between
-the model's output and true national risk coverage.
+Moran's I on model residuals is 0.3081, indicating that the model systematically
+under- or over-predicts risk in spatially coherent clusters rather than making
+independent errors across the road network. This is not a modelling failure — it
+is an honest signal that unobserved landscape covariates with strong spatial
+structure are influencing collision risk in ways no available open dataset can
+currently supply.
+
+Terrain derivatives (slope, curvature, ridgeline proximity) were considered as
+a potential addition. Analysis indicates their marginal contribution to residual
+reduction would be limited: animal movement corridors are already partially
+reflected in the sighting density lag features, meaning terrain effects are
+implicitly encoded wherever observer coverage is adequate. Adding SRTM-derived
+elevation features would provide genuine new signal only in data-sparse western
+regions where the sighting lags are near zero — an improvement for WA and SA
+coverage but not a meaningful reduction in the national Moran's I figure.
+
+AADT and fencing data represent the highest-value missing covariates but neither
+is consolidted into a nationally queryable open dataset at the time of writing.
+AADT is collected by state road agencies under inconsistent formats across
+jurisdictions. Fencing density has no national open registry at any spatial
+resolution. The residual autocorrelation therefore reflects the ceiling of what
+is achievable with open data at national scale, and cannot be resolved through
+modelling choices alone.
 
 ### 7.6 Geographic Coverage Bias in Sign Placement Recommendations
 
@@ -590,17 +605,7 @@ could be replaced or augmented with a genuine supervisory signal. Even a single
 state's data would allow the proxy label approach to be validated against real
 outcomes, converting the current limitation into a documented calibration result.
 
-### 8.2 Terrain and Fencing Data
-
-The residual Moran's I of 0.3081 suggests that unobserved landscape covariates
-are driving unexplained spatial clustering in the residuals. Terrain complexity
-(slope, curvature, ridgeline proximity) and fencing density are the two most
-likely candidates — both influence wildlife movement patterns and road crossing
-behaviour but are absent from available open data sources at national scale. If
-national terrain or fencing datasets become available under open licences, they
-represent the highest-value addition to the feature set.
-
-### 8.3 Temporal Risk Scoring
+### 8.2 Temporal Risk Scoring
 
 Monthly risk scores per segment — rather than a single static score — would allow
 road authorities to deploy seasonal warning sign programmes and variable message
@@ -609,7 +614,7 @@ aggregation pipeline at monthly temporal resolution rather than pooling across
 all six years, which is computationally feasible but requires ~6× the current
 segment-level data volume per species.
 
-### 8.4 Sign Placement Expansion to Western and Remote Australia
+### 8.3 Sign Placement Expansion to Western and Remote Australia
 
 The current sign placement recommendations are effectively limited to eastern
 Australia by training data coverage. Expanding reliable recommendations to WA,

@@ -133,10 +133,10 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
                                  │
                                  ▼
 ╔══════════════════════════════════════════════════════════════════════╗
-║                     SIGN PLACEMENT ENGINE                            ║
-║  5km sliding window · Top-K segments per state                       ║
-║  2km deduplication buffer · output: sign_placements.geojson          ║
-║  Target: ≥ 300 sign recommendations nationally                       ║
+║              SIGN PLACEMENT ENGINE  (sign_placement.py)              ║
+║  Risk threshold > 0.98 · per-state descending-risk selection         ║
+║  2km buffer spatial deduplication · output: sign_placements.geojson  ║
+║  Result: 1,207 sign recommendations nationally                       ║
 ╚════════════════════════════════╤═════════════════════════════════════╝
                                  │
                                  ▼
@@ -289,7 +289,7 @@ Every tool was chosen deliberately. Here's the reasoning:
 | **SHAP** | `TreeExplainer` computes exact Shapley values for XGBoost (not kernel approximations), making every per-segment explanation mathematically rigorous |
 | **joblib** | Standard XGBoost/sklearn serialisation; smallest file footprint for Streamlit Community Cloud's 1GB memory limit |
 
-> **Note — Optuna not yet integrated:** The current `model.py` uses hand-tuned fixed hyperparameters (`n_estimators=500`, `learning_rate=0.05`, `max_depth=6`). Optuna-based Bayesian hyperparameter search (50 trials) is planned for a subsequent pass.
+> **Optuna hyperparameter optimisation is integrated.** `model.py` includes a 50-trial Bayesian search (TPE sampler, multi-seed spatial CV objective) that produced the current production parameters: `n_estimators=900`, `learning_rate≈0.024`, `max_depth=8`. See [METHODOLOGY.md §6.7](METHODOLOGY.md#67-optuna-hyperparameter-optimisation) for the full search space and convergence analysis.
 
 ### Application Layer
 
@@ -322,18 +322,19 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 | **4** | Feature engineering | NDVI composite; ecological weights; season mapping | ✅ Complete |
 | **5** | Proxy label construction | Ecological × road exposure · spatial lag blend · rank normalisation | ✅ Complete |
 | **6** | Model training (XGBoost + SHAP + Moran's I) | Stochastic spatial block CV · spatial lag input features · SHAP values | ✅ Complete |
-| **7** | Optuna hyperparameter search | 50-trial Bayesian optimisation over spatial CV R² | 🔄 In Progress |
-| **8** | Sign placement engine | 5km sliding window · Top-K per state · 2km deduplication | ⏳ Pending |
+| **7** | Optuna hyperparameter search | 50-trial Bayesian optimisation (TPE sampler, multi-seed CV) | ✅ Complete |
+| **8** | Sign placement engine | Risk threshold > 0.98 · per-state selection · 2km buffer dedup · 1,207 signs | ✅ Complete |
 | **9** | Streamlit + Folium application | Risk heatmap · segment overlay · SHAP waterfall panel | ⏳ Pending |
-| **10** | Model card + METHODOLOGY.md + screen recording | Data provenance · label rationale · Moran's I result · limitations | ⏳ Pending |
+| **10** | METHODOLOGY.md + documentation | Data provenance · label rationale · Moran's I result · limitations | ✅ Complete |
 
-**Pipeline output so far:**
-- `sightings.parquet` — 413,000 sighting rows · 11 species · 17 features · ~18MB
-- `road_segment_labels.parquet` — Proxy risk score per road segment · ~52MB
-- `data/model.pkl` — Trained XGBoost model · ~2.4MB
+**Pipeline output:**
+- `sightings.parquet` — 413,000 sighting rows · 11 species · 17 features · ~17MB
+- `road_segment_labels.parquet` — Proxy risk score per road segment · ~53MB
+- `data/model.pkl` — Trained XGBoost model (Optuna-optimised) · ~13MB
 - `data/feature_cols.pkl` — Serialised feature column list
-- `data/road_segments_scored.parquet` — All segments with `predicted_risk` · ~53MB
-- `data/shap_values.parquet` — Per-segment SHAP decomposition · ~6.4MB
+- `data/road_segments_scored.parquet` — All segments with `predicted_risk` · ~54MB
+- `data/shap_values.parquet` — Per-segment SHAP decomposition · ~9MB
+- `data/sign_placements.geojson` — 1,207 deduplicated sign recommendations · ~2.3MB
 
 ---
 
@@ -360,19 +361,19 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 
 | Metric | Result | Target | Status |
 |---|---|---|---|
-| Spatial CV R² | 0.9727 ± 0.0011 | ≥ 0.60 | ✅ Exceeded |
-| Spatial CV MAE | 0.0352 ± 0.0013 | ≤ 0.08 | ✅ Exceeded |
+| Spatial CV R² (Optuna-optimised) | 0.9743 ± 0.0002 | ≥ 0.60 | ✅ Exceeded |
+| Spatial CV MAE (Optuna-optimised) | 0.0337 ± 0.0007 | ≤ 0.08 | ✅ Exceeded |
 | Moran's I on target | 0.4117 | — | Documented |
 | Moran's I on residuals | 0.3081 | — | 25.2% explained |
-| Tasmania holdout R (direct) | 0.9823 | — | ✅ Strong generalisation |
-| Tasmania ceiling achieved | 97.6% | — | ✅ Circularity addressed |
+| Tasmania holdout R (direct) | 0.9835 | — | ✅ Strong generalisation |
+| Tasmania ceiling achieved | 97.4% | — | ✅ Circularity addressed |
 
 ### Geographic Generalisation — Tasmania Holdout
 
-The model was retrained exclusively on mainland Australia (97,354 segments) and
+The Optuna-optimised model was retrained exclusively on mainland Australia (97,354 segments) and
 applied to a fully held-out geographic region (Tasmania, 2,385 segments) it had
 never seen during training. Predicted risk correlates with Tasmania's label rankings
-at Spearman r = 0.98, and achieves 97.6% of the theoretical ceiling correlation
+at Spearman r = 0.98, and achieves 97.4% of the theoretical ceiling correlation
 against raw sighting density — **demonstrating that the model learned transferable
 feature relationships, not geographic memorisation.**
 
@@ -416,11 +417,14 @@ python scripts/fetcher.py
 # Phase 2 — Spatial joins, NDVI sampling, feature engineering, proxy label
 python scripts/analyzer.py
 
-# Phase 3 — XGBoost training, spatial block CV, SHAP values, Moran's I
+# Phase 3 — XGBoost training, Optuna optimisation, spatial block CV, SHAP, Moran's I
 python scripts/model.py
+
+# Phase 4 — Sign placement recommendations (risk > 0.98, 2km dedup)
+python scripts/sign_placement.py
 ```
 
-After all three scripts complete, the full model artefacts will be written to `data/` (see **Pipeline output** above).
+After all four scripts complete, the full model artefacts will be written to `data/` (see **Pipeline output** above).
 
 ---
 
@@ -431,33 +435,36 @@ aus-wildlife-roadkill-risk-mapper/
 ├── scripts/
 │   ├── fetcher.py              # ALA/GBIF ingestion · cleaning · road/NDVI preprocessing
 │   ├── analyzer.py             # Spatial joins · NDVI sampling · proxy label construction
-│   ├── model.py                # XGBoost training · stochastic block CV · SHAP · Moran's I
+│   ├── model.py                # XGBoost training · Optuna · spatial block CV · SHAP · Moran's I
+│   ├── sign_placement.py       # Risk threshold + 2km buffer spatial deduplication engine
 │   └── test.py                 # Scratch validation helpers
 ├── data/  (gitignored)
 │   ├── blueprint.md            # Full technical design document
-│   ├── model/                  # Model, features, SHAP values, road segments scored
-│   └── processed/              # Intermediate projected parquets and tif
-│   ├── raw/                    # Shapefiles, GeoPackage, NDVI rasters
+│   ├── model.pkl               # Trained XGBoost model (Optuna-optimised)
+│   ├── feature_cols.pkl        # Serialised feature column list
+│   ├── road_segments_scored.parquet  # All segments with predicted_risk (~54MB)
+│   ├── shap_values.parquet     # Per-segment SHAP decomposition (~9MB)
+│   ├── sign_placements.geojson # 1,207 deduplicated sign recommendations
+│   ├── processed/              # Intermediate projected parquets and tif
+│   └── raw/                    # Shapefiles, GeoPackage, NDVI rasters
 ├── notebooks/
 │   └── test.ipynb              # Exploratory scratch notebook
 ├── sightings/                  # Per-species parquet files (11 files, one per species)
 ├── sightings.parquet           # Final feature store — 413k rows, 17 features (~18MB)
 ├── road_segment_labels.parquet # Proxy risk score per segment (~52MB)
+├── METHODOLOGY.md              # Research design, label rationale, validation, limitations
 ├── requirements.txt
 └── LICENSE
 ```
 
-**Upcoming Changes:**
+**Upcoming:**
 ```text
-├── scripts/
-│   └── sign_placement.py       # Sliding-window sign placement engine
 ├── app/
 │   ├── streamlit_app.py        # Main application entry point
 │   └── components/
 │       ├── map_view.py         # Folium map builder
 │       ├── shap_panel.py       # Per-segment SHAP waterfall charts
 │       └── stats_panel.py      # National statistics summary
-└── METHODOLOGY.md              # Model card + data provenance + known limitations
 ```
 
 ---
