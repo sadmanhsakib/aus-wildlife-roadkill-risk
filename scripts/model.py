@@ -321,11 +321,17 @@ def train_model(
     Returns:
         The fully trained XGBoost model.
     """
-    # Initialize XGBoost Regressor with tuned hyperparameters
-    best_params = optimize_hyperparameters(gdf, X, y)
-    best_params["random_state"] = 67
-    best_params["n_jobs"] = -1
-    model = XGBRegressor(**best_params)
+    params = {
+    "n_estimators": 900,
+    "learning_rate": 0.023803673013729848,
+    "max_depth": 8,
+    "subsample": 0.6550292186778295,
+    "colsample_bytree": 0.7913888609441889,
+    "random_state": 67,
+    "n_jobs": -1,
+    }
+    
+    model = XGBRegressor(**params)
 
     cv_r2_scores, cv_mae_scores = run_spatial_cv(gdf, X, y, model, n_folds=n_folds)
 
@@ -431,10 +437,18 @@ def validate_geographic_holdout(
     X_train, y_train, _ = get_features_and_target(train_gdf)
     X_holdout, _, _ = get_features_and_target(holdout_gdf)
 
-    best_params = optimize_hyperparameters(gdf, X, y)
-    best_params["random_state"] = 67
-    best_params["n_jobs"] = -1
-    holdout_model = XGBRegressor(**best_params)
+
+    params = {
+    "n_estimators": 1000,
+    "learning_rate": 0.024857780302879905,
+    "max_depth": 7,
+    "subsample": 0.5327878380429434,
+    "colsample_bytree": 0.7491691152565406,
+    "random_state": 67,
+    "n_jobs": -1,
+    }
+
+    holdout_model = XGBRegressor(**params)
 
     # Perform spatial block CV on training data to assess mainland performance
     cv_r2, cv_mae = run_spatial_cv(train_gdf, X_train, y_train, holdout_model, n_folds=n_folds)

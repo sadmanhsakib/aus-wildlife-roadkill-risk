@@ -168,7 +168,7 @@ async def get_gbif_data(species_key: int, state: str) -> str:
                 results.extend(data["results"])
 
                 print(f"✅ Data Pulled: {offset}")
-                if data["endOfRecords"] or offset > 100:
+                if data["endOfRecords"]:
                     break
                 offset += 300
             else:
@@ -234,9 +234,6 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
                 total_records = data.get("totalRecords", 0)
                 # Stop early once all pages are consumed
                 if not data.get("occurrences") or offset + 1000 >= total_records:
-                    break
-                # Guard against unbounded fetches during development
-                elif offset > 10:
                     break
                 offset += 1000
             except (KeyError, TypeError):
