@@ -282,7 +282,7 @@ def optimize_hyperparameters(
         model = XGBRegressor(**params)
         
         all_r2_scores = []
-        for seed in range(5):
+        for seed in [11, 42, 77, 123, 200]:
             cv_r2, _ = run_spatial_cv(gdf, X, y, model, n_folds=5)
             all_r2_scores.extend(cv_r2)
         
@@ -322,15 +322,10 @@ def train_model(
         The fully trained XGBoost model.
     """
     # Initialize XGBoost Regressor with tuned hyperparameters
-    model = XGBRegressor(
-        n_estimators=600,
-        learning_rate=0.030855509013861318,
-        max_depth=8,
-        subsample=0.6477704984299354,
-        colsample_bytree=0.7398024903848721,
-        random_state=67,
-        n_jobs=-1,
-    )
+    best_params = optimize_hyperparameters(gdf, X, y)
+    best_params["random_state"] = 67
+    best_params["n_jobs"] = -1
+    model = XGBRegressor(**best_params)
 
     cv_r2_scores, cv_mae_scores = run_spatial_cv(gdf, X, y, model, n_folds=n_folds)
 
@@ -436,15 +431,10 @@ def validate_geographic_holdout(
     X_train, y_train, _ = get_features_and_target(train_gdf)
     X_holdout, _, _ = get_features_and_target(holdout_gdf)
 
-    holdout_model = XGBRegressor(
-        n_estimators=1000,
-        learning_rate=0.01710735120891374,
-        max_depth=9,
-        subsample=0.5010581179689328,
-        colsample_bytree=0.9120399199219775,
-        random_state=67,
-        n_jobs=-1,
-    )
+    best_params = optimize_hyperparameters(gdf, X, y)
+    best_params["random_state"] = 67
+    best_params["n_jobs"] = -1
+    holdout_model = XGBRegressor(**best_params)
 
     # Perform spatial block CV on training data to assess mainland performance
     cv_r2, cv_mae = run_spatial_cv(train_gdf, X_train, y_train, holdout_model, n_folds=n_folds)
@@ -548,4 +538,4 @@ def score_all_segments(
 if __name__ == "__main__":
     start_time = time.time()
     main()
-    print(f"✅ Analysis pipeline completed in {time.time() - start_time:.2f} seconds")
+    print(f"✅ Execution completed in {time.time() - start_time:.2f} seconds")

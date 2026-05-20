@@ -588,4 +588,4 @@ def build_ndvi_median_composite():
 if __name__ == "__main__":
     start_time = time.time()
     main()
-    print(f"✅ Analysis pipeline completed in {time.time() - start_time:.2f} seconds")
+    print(f"✅ Execution completed in {time.time() - start_time:.2f} seconds")

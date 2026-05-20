@@ -202,11 +202,11 @@ def engineer_proxy_risk_labels():
             mean_body_mass_weight=("body_mass_weight", "mean"),
             mean_nocturnal_weight=("nocturnal_weight", "mean"),
             mean_peak_season_weight=("peak_season_weight", "mean"),
+            mean_distance_to_road=("distance_to_road", "mean"),
             mean_ndvi=("ndvi", "mean"),
             road_class=("road_class", "first"),
             speed_limit=("speed_limit", "first"),
             traffic_proxy=("traffic_proxy", "first"),
-            distance_to_road=("distance_to_road", "mean"),
         )
         .reset_index()
     )
@@ -240,7 +240,7 @@ def engineer_proxy_risk_labels():
     )
 
     # Road Exposure: Represents the physical risk factor of the road infrastructure
-    road_segment_gdf["proximity"] = 1 - minmax(road_segment_gdf["distance_to_road"])
+    road_segment_gdf["proximity"] = 1 - minmax(road_segment_gdf["mean_distance_to_road"])
     road_segment_gdf["road_exposure_score"] = (
         0.35 * minmax(road_segment_gdf["speed_limit"])
         + 0.35 * minmax(road_segment_gdf["proximity"])
@@ -331,4 +331,4 @@ def visualize(gdf: gpd.GeoDataFrame):
 if __name__ == "__main__":
     start_time = time.time()
     main()
-    print(f"✅ Analysis pipeline completed in {time.time() - start_time:.2f} seconds")
+    print(f"✅ Execution completed in {time.time() - start_time:.2f} seconds")
