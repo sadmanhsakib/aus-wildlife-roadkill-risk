@@ -376,9 +376,8 @@ def to_parquet(path: str):
 
     try:
         for file_name in os.listdir(path):
-            if not file_name.endswith(".csv"):
-                continue
-            file_names.append(os.path.join(path, file_name))
+            if file_name.endswith(".csv"):
+                file_names.append(os.path.join(path, file_name))
     except NotADirectoryError:
         file_names.append(path)
 
@@ -410,9 +409,8 @@ def enrich(path: str):
 
     try:
         for file_name in os.listdir(path):
-            if not file_name.endswith(".parquet"):
-                continue
-            file_names.append(os.path.join(path, file_name))
+            if file_name.endswith(".parquet"):
+                file_names.append(os.path.join(path, file_name))
     except NotADirectoryError:
         file_names.append(path)
 

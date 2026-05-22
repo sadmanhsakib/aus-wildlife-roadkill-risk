@@ -1,6 +1,6 @@
 """
 Geospatial Sign Placement Engine for Wildlife Roadkill Risk Mapping.
-
+===================================================================
 This module processes high-risk road segments and performs spatial deduplication
 (using a sliding-window spatial buffer check) to recommend optimal, strictly
 distanced locations for wildlife warning signs (minimum 2km spacing between signs)
@@ -64,7 +64,6 @@ def get_sign_placement() -> None:
                     within_2000 = True
                     break
             
-            # If no conflict within 2km, accept the segment
             if not within_2000:
                 selected_buffers.append(road_segment["buffer"])
                 selected_state_rows.append(road_segment)
@@ -75,7 +74,10 @@ def get_sign_placement() -> None:
         final_gdf = gpd.GeoDataFrame(all_selected_rows, crs="EPSG:32754")
 
         # Keep only the essential attributes required for application layers and GIS exports
-        columns_to_keep = ["road_segment_id", "state", "road_class", "speed_limit", "predicted_risk", "geometry"]
+        columns_to_keep = [
+            "road_segment_id", "state", "road_class", 
+            "speed_limit", "predicted_risk", "geometry"
+        ]
         final_gdf = final_gdf[columns_to_keep]
         
         # Reproject back to WGS 84 (EPSG:4326) for interactive web maps / Streamlit integration

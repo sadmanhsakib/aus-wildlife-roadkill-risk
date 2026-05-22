@@ -21,22 +21,8 @@ import fetcher
 LATITUDE_COLUMN = "latitude"
 LONGITUDE_COLUMN = "longitude"
 
-# Standard administrative regions for filtering/validation
-MAIN_STATES = (
-    "New South Wales",
-    "Victoria",
-    "Queensland",
-    "Western Australia",
-    "South Australia",
-    "Tasmania",
-    "Australian Capital Territory",
-    "Northern Territory",
-)
-
 
 def main():
-    engineer_proxy_risk_labels()
-    return
     p = "backup/"
 
     for filename in os.listdir(p):
@@ -57,6 +43,8 @@ def main():
         [f"sightings/{f}" for f in os.listdir("sightings/")],
         has_geometry=True,
     )
+    
+    engineer_proxy_risk_labels()
 
 
 def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
@@ -142,19 +130,19 @@ def engineer_features(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return gdf
 
 
-def sample_raster_at_points(df, col_name):
+def sample_raster_at_points(gdf, col_name):
     """
     Extracts raster values at specific geographic coordinates.
     Handles coordinate transformation if raster CRS differs from input.
 
     Args:
-        df: DataFrame containing longitude/latitude columns.
+        gdf: DataFrame containing longitude/latitude columns.
         col_name: Name of the resulting column in the output DataFrame.
 
     Returns:
         DataFrame with an additional column containing sampled raster values.
     """
-    coords = list(zip(df["longitude"], df["latitude"]))
+    coords = list(zip(gdf["longitude"], gdf["latitude"]))
 
     with rasterio.open("data/processed/ndvi_median_australia.tif") as src:
         # Align coordinate systems if necessary
@@ -169,8 +157,8 @@ def sample_raster_at_points(df, col_name):
         print("🔄 Fetching vegetation data for each coordinate....")
         sampled = list(sample_gen(src, coords, indexes=1))
 
-    df[col_name] = np.array(sampled, dtype=float)
-    return df
+    gdf[col_name] = np.array(sampled, dtype=float)
+    return gdf
 
 
 def minmax(series, q_hi=0.99):
@@ -178,6 +166,7 @@ def minmax(series, q_hi=0.99):
     hi = series.quantile(q_hi)
     clipped = series.clip(upper=hi)
     return (clipped - clipped.min()) / (clipped.max() - clipped.min())
+
 
 def engineer_proxy_risk_labels():
     """
@@ -214,6 +203,8 @@ def engineer_proxy_risk_labels():
     gc.collect()
 
     roads_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
+    
+    # adding the geometry for each road
     road_segment_df = road_segment_df.merge(
         roads_projected[["road_segment_id", "geometry"]],
         on="road_segment_id",

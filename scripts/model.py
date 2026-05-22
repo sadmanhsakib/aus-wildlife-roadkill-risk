@@ -1,6 +1,6 @@
 """
 Machine Learning Pipeline for Wildlife Roadkill Risk Mapping.
-
+============================================================
 This module provides the end-to-end machine learning pipeline for predicting
 wildlife roadkill risk along road segments. It includes spatial lag feature
 generation, model training with spatial block cross-validation, spatial
@@ -177,7 +177,7 @@ def get_features_and_target(
     ]
     
     # Retain only columns that are not in the drop list
-    feature_cols = [c for c in gdf.columns if c not in drop_cols]
+    feature_cols = gdf.drop(columns=drop_cols)
 
     X = gdf[feature_cols].values
     y = gdf["proxy_risk"].values

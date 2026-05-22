@@ -81,7 +81,7 @@ in meaningful numbers. Taking the union (deduplicated on exact coordinates, mont
 and year) achieves greater spatial coverage than either source alone, particularly
 for remote regions underrepresented in citizen science data.
 
-### 2.3 Temporal Window — 2021 to 2026
+### 2.3 Temporal Window — 2020 to 2026
 
 The six-year window was chosen to balance three competing constraints:
 
@@ -519,13 +519,13 @@ is a known and unresolved limitation of occurrence-record-based risk modelling.
 
 ### 7.4 Static Temporal Snapshot
 
-The model produces a single risk score per segment based on data from 2021–2026.
+The model produces a single risk score per segment based on data from 2020–2026.
 It does not capture seasonal variation at the segment level — the `peak_season_weight`
 encodes species-level seasonal risk but the model itself produces one static output.
 Risk scores will become stale as land use changes, road infrastructure is upgraded,
 and species distributions shift under climate change. The pipeline is designed to
 be re-run as new ALA/GBIF data becomes available, but the current deployment
-represents a 2021–2026 snapshot.
+represents a 2020–2026 snapshot.
 
 ### 7.5 Residual Spatial Autocorrelation and Unobserved Covariates
 
