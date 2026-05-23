@@ -71,8 +71,8 @@ def main() -> None:
     score_all_segments(model=model, gdf=segment_gdf, X=X)
 
     print("Saving model artifacts...")
-    joblib.dump(model, "data/model.pkl")
-    joblib.dump(feature_cols, "data/feature_cols.pkl")
+    joblib.dump(model, "data/model/model.pkl")
+    joblib.dump(feature_cols, "data/model/feature_cols.pkl")
 
 
 def add_spatial_lag_features(
@@ -517,7 +517,7 @@ def compute_shap(
     shap_df.insert(0, "road_segment_id", gdf["road_segment_id"].values)
     
     # Save SHAP values for downstream analysis or visualisation
-    shap_df.to_parquet("data/shap_values.parquet", index=False)
+    shap_df.to_parquet("data/model/shap_values.parquet", index=False)
 
     print(f"SHAP values saved — shape: {shap_df.shape}")
     return shap_df
@@ -543,7 +543,7 @@ def score_all_segments(
     gdf["predicted_risk"] = model.predict(X)
     
     # Save the final scored dataset
-    gdf.to_parquet("data/road_segments_scored.parquet", index=False)
+    gdf.to_parquet("data/model/road_segments_scored.parquet", index=False)
     
     print(f"Scored parquet saved — {len(gdf)} segments")
     return gdf

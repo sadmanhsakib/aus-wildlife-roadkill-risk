@@ -28,7 +28,7 @@ def get_sign_placement() -> None:
     6. Reprojects the selected segments back to WGS 84 (EPSG:4326) and saves the
        output to sign_placements.geojson.
     """
-    scored_segment_gdf = gpd.read_parquet("data/road_segments_scored.parquet")
+    scored_segment_gdf = gpd.read_parquet("data/model/road_segments_scored.parquet")
     
     # Ensure EPSG:32754 so distance calculations are correct (units in metres)
     if scored_segment_gdf.crs != "EPSG:32754":
@@ -84,8 +84,8 @@ def get_sign_placement() -> None:
         final_gdf = final_gdf.to_crs(epsg=4326)
         
         # Save output to a GeoJSON file at the root directory
-        final_gdf.to_file("data/sign_placements.geojson", driver="GeoJSON")
-        print(f"✅ Successfully saved {len(final_gdf)} sign placements to data/sign_placements.geojson")
+        final_gdf.to_file("data/model/sign_placements.geojson", driver="GeoJSON")
+        print(f"✅ Successfully saved {len(final_gdf)} sign placements to data/model/sign_placements.geojson")
     else:
         print("⚠️ No sign placements matched the filtering criteria.")
 

@@ -126,7 +126,7 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
 ║  XGBoost Regressor                                                   ║
 ║  + Spatial lag features added as explicit model inputs (KNN k=5)     ║
 ║  + Stochastic Spatial Block CV (5-fold, jittered ±15km boundaries)   ║
-║  + SHAP TreeExplainer → data/shap_values.parquet                     ║
+║  + SHAP TreeExplainer → data/model/shap_values.parquet                     ║
 ║  + Moran's I on residuals → spatial leakage audit                    ║
 ║  Target metrics: spatial CV R² ≥ 0.60 · MAE ≤ 0.08                   ║
 ╚════════════════════════════════╤═════════════════════════════════════╝
@@ -330,11 +330,11 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 **Pipeline output:**
 - `sightings.parquet` — 413,000 sighting rows · 11 species · 17 features · ~17MB
 - `road_segment_labels.parquet` — Proxy risk score per road segment · ~53MB
-- `data/model.pkl` — Trained XGBoost model (Optuna-optimised) · ~13MB
-- `data/feature_cols.pkl` — Serialised feature column list
-- `data/road_segments_scored.parquet` — All segments with `predicted_risk` · ~54MB
-- `data/shap_values.parquet` — Per-segment SHAP decomposition · ~9MB
-- `data/sign_placements.geojson` — 1,207 deduplicated sign recommendations · ~2.3MB
+- `data/model/model.pkl` — Trained XGBoost model (Optuna-optimised) · ~13MB
+- `data/model/feature_cols.pkl` — Serialised feature column list
+- `data/model/road_segments_scored.parquet` — All segments with `predicted_risk` · ~54MB
+- `data/model/shap_values.parquet` — Per-segment SHAP decomposition · ~9MB
+- `data/model/sign_placements.geojson` — 1,207 deduplicated sign recommendations · ~2.3MB
 
 ---
 
@@ -345,7 +345,7 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 | Metric | Target | Measurement Method |
 |---|---|---|
 | App initial load time | ≤ 5 seconds | Streamlit Community Cloud benchmark |
-| SHAP coverage | 100% of features | All features present in `data/shap_values.parquet` |
+| SHAP coverage | 100% of features | All features present in `data/model/shap_values.parquet` |
 
 ### Impact Targets
 
@@ -440,11 +440,12 @@ aus-wildlife-roadkill-risk-mapper/
 │   └── test.py                 # Scratch validation helpers
 ├── data/  (gitignored)
 │   ├── blueprint.md            # Full technical design document
-│   ├── model.pkl               # Trained XGBoost model (Optuna-optimised)
-│   ├── feature_cols.pkl        # Serialised feature column list
-│   ├── road_segments_scored.parquet  # All segments with predicted_risk (~54MB)
-│   ├── shap_values.parquet     # Per-segment SHAP decomposition (~9MB)
-│   ├── sign_placements.geojson # 1,207 deduplicated sign recommendations
+│   ├── model/                  # Model files
+│   │   ├── model.pkl           # Trained XGBoost model (Optuna-optimised)
+│   │   ├── feature_cols.pkl    # Serialised feature column list
+│   │   ├── road_segments_scored.parquet  # All segments with predicted_risk (~54MB)
+│   │   ├── shap_values.parquet     # Per-segment SHAP decomposition (~9MB)
+│   │   └── sign_placements.geojson # 1,207 deduplicated sign recommendations
 │   ├── processed/              # Intermediate projected parquets and tif
 │   └── raw/                    # Shapefiles, GeoPackage, NDVI rasters
 ├── notebooks/
