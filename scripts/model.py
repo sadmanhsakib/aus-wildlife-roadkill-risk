@@ -177,7 +177,7 @@ def get_features_and_target(
     ]
     
     # Retain only columns that are not in the drop list
-    feature_cols = gdf.drop(columns=drop_cols)
+    feature_cols = gdf.drop(columns=drop_cols).columns
 
     X = gdf[feature_cols].values
     y = gdf["proxy_risk"].values
