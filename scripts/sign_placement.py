@@ -73,6 +73,10 @@ def get_sign_placement() -> None:
         # Reconstruct the GeoDataFrame from the selected rows
         final_gdf = gpd.GeoDataFrame(all_selected_rows, crs="EPSG:32754")
 
+        # Convert from road segments to points by taking the representative point of each segment
+        road_sign_point = final_gdf.geometry.representative_point()
+        final_gdf["geometry"] = road_sign_point
+        
         # Keep only the essential attributes required for application layers and GIS exports
         columns_to_keep = [
             "road_segment_id", "state", "road_class", 
