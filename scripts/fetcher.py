@@ -14,7 +14,8 @@ import pandas as pd
 import geopandas as gpd
 
 # --- GBIF Species Taxon Keys ---
-# These integer keys uniquely identify species in the GBIF backbone taxonomy.
+# GBIF occurrence search requires backbone taxon keys, not free-text names,
+# to avoid synonym ambiguity across its global taxonomy.
 KANGAROO_RED_KEY = 12019022
 KANGAROO_GREY_KEY = 5219981
 WALLABY_SWAMP_KEY = 2440149
@@ -28,7 +29,8 @@ ECHIDNA_KEY = 2433378
 PLATYPUS_KEY = 2433376
 
 # --- ALA Scientific Names ---
-# Full binomial nomenclature used to query the Atlas of Living Australia API.
+# ALA's Solr API accepts binomial names directly; we query both ALA and GBIF
+# because each archive has different contributor networks and coverage gaps.
 KANGAROO_RED_SCIENTIFIC_NAME = "Osphranter rufus"
 KANGAROO_GREY_SCIENTIFIC_NAME = "Macropus giganteus"
 WALLABY_SWAMP_SCIENTIFIC_NAME = "Wallabia bicolor"
@@ -45,7 +47,8 @@ PLATYPUS_SCIENTIFIC_NAME = "Ornithorhynchus anatinus"
 GBIF_URL = "https://api.gbif.org/v1/occurrence/search"
 ALA_URL = "https://biocache-ws.ala.org.au/ws/occurrences/search"
 
-# Standard ISO-style state code mapping for Australian jurisdictions
+# Canonical state list — downstream filters and map labels expect these eight
+# jurisdictions; the ABS SA1 shapefile includes extra areas we deliberately omit.
 STATE_CODES = {
     "New South Wales": "NSW",
     "Queensland": "QLD",
@@ -57,7 +60,7 @@ STATE_CODES = {
     "Western Australia": "WA",
 }
 
-# Southern Hemisphere month-to-season mapping
+# Australian seasons run opposite to the Northern Hemisphere calendar convention.
 SEASON_MAP = {
     1: "Summer",
     2: "Summer",
@@ -77,7 +80,7 @@ SEASON_MAP = {
 # Used to assign a temporal risk weight to sightings recorded during high-activity periods.
 PEAK_SEASON_MAP = {
     "Osphranter rufus": [9, 10, 11, 12],
-    "Macropus rufus": [9, 10, 11, 12],
+    "Macropus rufus": [9, 10, 11, 12],  # legacy GBIF synonym for Osphranter rufus
     "Macropus giganteus": [9, 10, 11, 12],
     "Wallabia bicolor": [9, 10, 11],
     "Notamacropus rufogriseus": [10, 11, 12, 1],
@@ -144,15 +147,17 @@ async def get_gbif_data(species_key: int, state: str) -> str:
     offset = 0
     results = []
 
+    # httpx keeps pagination non-blocking so multiple species/state jobs can run concurrently.
     async with httpx.AsyncClient() as client:
         while True:
             params = {
                 "taxonKey": species_key,
                 "country": "AU",
-                "hasCoordinate": "true",
+                "hasCoordinate": "true",  # coordinate-less records cannot join to road segments
                 "stateProvince": f"{state}",
+                # Window matches NDVI composite, road network vintage, and model training period.
                 "year": [2026, 2025, 2024, 2023, 2022, 2021, 2020],
-                "limit": 300,
+                "limit": 300,  # GBIF hard cap per request
                 "offset": offset,
             }
 
@@ -171,7 +176,7 @@ async def get_gbif_data(species_key: int, state: str) -> str:
                 print(response.text)
                 return 1
 
-        # Respect GBIF rate limits to avoid HTTP 429 backpressure
+        # One pause after each species/state query — enough to stay under GBIF's fair-use threshold.
         await asyncio.sleep(1.0)
 
     if results:
@@ -179,6 +184,7 @@ async def get_gbif_data(species_key: int, state: str) -> str:
             f"{results[0]['species'].lower().replace(' ', '_')}_sightings_gbif.csv"
         )
         df = pd.DataFrame(results)[
+            # Subset at export — raw API payloads carry dozens of unused metadata fields.
             ["species", "month", "year", "decimalLatitude", "decimalLongitude"]
         ]
         df.to_csv(file_name, index=False)
@@ -212,8 +218,9 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
                 "year:[2020 TO 2026]",
                 f"stateProvince:{state}",
             ],
-            "pageSize": 1000,  # records per page (max 1000)
-            "startIndex": offset,  # for pagination
+            "pageSize": 1000,  # ALA maximum — fewer round trips than GBIF's smaller pages
+            "startIndex": offset,
+            # Field list keeps payloads small; we only need columns the risk model consumes.
             "fl": "scientificName,month,year,decimalLatitude,decimalLongitude",
         }
         headers = {"Accept": "application/json"}
@@ -227,19 +234,18 @@ def get_ala_data(species_scientific_name: str, state: str) -> str:
             print(f"✅ Data Pulled: {offset}")
             try:
                 total_records = data.get("totalRecords", 0)
-                # Stop early once all pages are consumed
                 if not data.get("occurrences") or offset + 1000 >= total_records:
                     break
                 offset += 1000
             except (KeyError, TypeError):
-                # Safeguard against malformed API responses to prevent infinite loops
+                # ALA occasionally returns partial JSON on timeout — bail rather than loop forever.
                 break
         else:
             print(f"❌ Error: {response.status_code}")
             print(response.text)
             return 1
 
-        # Respect ALA rate limits to avoid HTTP 429 backpressure
+        # Per-page throttle: ALA is more sensitive to burst traffic than GBIF.
         time.sleep(1.0)
 
     if results:
@@ -280,7 +286,7 @@ def clean_DataFrame(file_name: str):
 
     df = pd.read_csv(file_name)
 
-    # ALA uses 'scientificName' while GBIF uses 'species' — normalize to unified schema
+    # Harmonize column names so GBIF and ALA records share one downstream schema.
     try:
         df = df.rename(columns={"scientificName": "species"})
     except KeyError:
@@ -299,12 +305,13 @@ def clean_DataFrame(file_name: str):
     # Exclude pre-2020 records to align with NDVI and road dataset temporal coverage
     df = df.drop(df[df["year"] < 2020].index)
 
-    # Enforce Australian continental bounding box (lat: -44 to -10, lon: 113 to 154)
+    # Continental bbox drops mis-geocoded and offshore records outside the analysis extent.
     df = df.drop(df[df["latitude"] < -44].index)
     df = df.drop(df[df["latitude"] > -10].index)
     df = df.drop(df[df["longitude"] < 113].index)
     df = df.drop(df[df["longitude"] > 154].index)
 
+    # Same sighting can appear in both GBIF and ALA — dedupe before spatial aggregation.
     df = df.drop_duplicates(subset=["latitude", "longitude", "year", "month"])
 
     df.to_csv(f"{file_name}", index=False)
@@ -325,7 +332,8 @@ def merge(new_file_name: str, file_names: list, shouldDelete=False, has_geometry
     """
     df_list = []
 
-    if has_geometry:    
+    # GeoParquet preserves geometry for spatial layers; flat Parquet for tabular sightings.
+    if has_geometry:
         for file_name in file_names:
             if file_name.endswith(".csv"):
                 df_list.append(pd.read_csv(file_name))
@@ -340,11 +348,12 @@ def merge(new_file_name: str, file_names: list, shouldDelete=False, has_geometry
 
     merged_df = pd.concat(df_list, ignore_index=True)
 
-    # Cross-source deduplication on the canonical spatial-temporal key
+    # Final merge pass catches duplicates that survived per-file cleaning.
     merged_df = merged_df.drop_duplicates(
         subset=["species", "month", "year", "latitude", "longitude"]
     )
 
+    # Per-state/per-source CSVs are throwaway once consolidated — keeps data/ tidy.
     if shouldDelete:
         for file_name in file_names:
             os.remove(file_name)
@@ -374,6 +383,7 @@ def to_parquet(path: str):
             if file_name.endswith(".csv"):
                 file_names.append(os.path.join(path, file_name))
     except NotADirectoryError:
+        # Caller may pass a single file path instead of a directory.
         file_names.append(path)
 
     for file_name in file_names:
@@ -382,6 +392,7 @@ def to_parquet(path: str):
         df = pd.read_csv(file_name)
         df.to_parquet(new_file_name, index=False)
 
+        # Remove CSV so downstream stages cannot accidentally read the stale copy.
         os.remove(file_name)
         print(f"✅ Data exported to {new_file_name} successfully. ")
 
@@ -407,6 +418,7 @@ def enrich(path: str):
             if file_name.endswith(".parquet"):
                 file_names.append(os.path.join(path, file_name))
     except NotADirectoryError:
+        # Caller may pass a single file path instead of a directory.
         file_names.append(path)
 
     for file_name in file_names:
@@ -416,7 +428,7 @@ def enrich(path: str):
         df["body_mass_weight"] = df["species"].map(BODY_MASS_WEIGHT)
         df["nocturnal_weight"] = df["species"].map(NOCTURNAL)
 
-        # Vectorized peak-season flag: applies a 1.3x multiplier for biologically active periods
+        # 1.3× boost during peak activity months — modest uplift, not a hard filter.
         df["peak_season_weight"] = [
             1.3 if m in PEAK_SEASON_MAP.get(s, []) else 1.0
             for s, m in zip(df["species"], df["month"])
@@ -445,8 +457,7 @@ def prepare_road_network():
         columns=["osm_id", "name", "fclass", "geometry"],
     )
 
-    # Speed limit (km/h) and traffic proxy (0.2–1.0) per OSM functional road class.
-    # Traffic proxy is a relative volume index, not an absolute vehicle count.
+    # Speed limit and traffic proxy are stand-ins where OSM lacks tagged maxspeed/AADT.
     FCLASS_DEFAULTS = {
         "motorway": (110, 1.0),
         "trunk": (100, 0.8),
@@ -458,7 +469,7 @@ def prepare_road_network():
         "residential": (50, 0.2),
     }
 
-    # Retain only road classes covered by the risk model
+    # Exclude footpaths, cycleways, etc. — no meaningful vehicle-wildlife collision risk.
     road_networks_gdf = road_networks_gdf[road_networks_gdf["fclass"].isin(FCLASS_DEFAULTS.keys())]
     road_networks_gdf["speed_zone"] = road_networks_gdf["fclass"].map(
         lambda x: FCLASS_DEFAULTS[x][0]
@@ -494,17 +505,14 @@ def prepare_state_boundaries():
         "data/raw/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
     )
 
-    # Exclude non-state jurisdictions (e.g., offshore territories, Jervis Bay)
+    # Keep only the eight mapped jurisdictions — matches STATE_CODES and map UI filters.
     state_boundaries = state_boundaries[
         state_boundaries["STE_NAME21"].isin(STATE_CODES.keys())
     ]
     state_boundaries = state_boundaries.rename(columns={"STE_NAME21": "state"})
 
+    # Dissolve SA1 polygons to one multipolygon per state for state-level spatial joins.
     state_boundaries = state_boundaries.dissolve(by="state").reset_index()
-
-    state_boundaries["geometry"] = state_boundaries.geometry.simplify(
-        tolerance=500, preserve_topology=True
-    )
 
     state_boundaries.to_parquet("data/processed/state_boundaries.parquet", index=False)
     print(
@@ -554,17 +562,18 @@ def build_ndvi_median_composite():
                 block_arrays = []
                 for src in srcs:
                     data = src.read(1, window=window).astype(np.float32)
-                    data[data == -28672] = np.nan  # MODIS fill value sentinel
-                    data = data * 0.0001  # MODIS DN → reflectance scale factor
+                    data[data == -28672] = np.nan  # treat MODIS fill as missing, not zero vegetation
+                    data = data * 0.0001  # convert stored DN to physical reflectance before aggregation
                     block_arrays.append(data)
 
-                # Stack to (num_months, H, W) and reduce along the temporal axis
+                # Median resists cloud gaps and anomalous months better than a temporal mean.
                 stack = np.stack(block_arrays, axis=0)
                 block_median = np.nanmedian(stack, axis=0)
 
                 dst.write(block_median.astype(np.float32), 1, window=window)
 
                 del stack, block_arrays
+                # Explicit cleanup — block loops over continental rasters can exhaust memory on Windows.
                 gc.collect()
 
     finally:

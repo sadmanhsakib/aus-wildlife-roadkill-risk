@@ -18,29 +18,26 @@ from rasterio.sample import sample_gen
 import fetcher
 
 
+# Stable column names — raw parquet files from fetcher always use these fields.
 LATITUDE_COLUMN = "latitude"
 LONGITUDE_COLUMN = "longitude"
 
 
 def main():
-    visualize()
-    
-    return
+    # Per-species parquets in backup/ are enriched but not yet spatially joined.
     p = "backup/"
 
     for filename in os.listdir(p):
         if filename.endswith(".parquet"):
             df = pd.read_parquet(f"{p}{filename}")
 
-            # Prepare spatial data (joins and projections)
             sightings_gdf = prepare_spatial_data(df)
-
-            # Engineer features and risk labels
             sightings_gdf = engineer_features(sightings_gdf)
 
             sightings_gdf.to_parquet(f"sightings/{filename}", index=False)
             print(f"✅ sightings/{filename} processed successfully.\n")
 
+    # One national table — the risk model aggregates at road-segment level, not per species file.
     fetcher.merge(
         "sightings.parquet",
         [f"sightings/{f}" for f in os.listdir("sightings/")],
@@ -48,6 +45,8 @@ def main():
     )
 
     engineer_proxy_risk_labels()
+
+    visualize_road_segments()
 
 
 def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
@@ -65,7 +64,9 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
         df,
         geometry=gpd.points_from_xy(df[LONGITUDE_COLUMN], df[LATITUDE_COLUMN]),
         crs="EPSG:4326",
-    ).to_crs(epsg=32754)
+    )
+    # MGA Zone 54 gives metric distances — required for meaningful nearest-road joins.
+    sightings_projected_gdf = sightings_projected_gdf.to_crs(epsg=32754)
 
     print("⏳ Loading state boundary data....")
     state_boundaries_projected_gdf = gpd.read_parquet(
@@ -76,7 +77,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
         "data/processed/road_networks.parquet"
     ).to_crs(epsg=32754)
 
-    # Intersection with state boundaries for regional categorization
+    # Drop sightings outside the eight mapped states — usually bad geocodes or offshore points.
     sightings_joined = gpd.sjoin(
         sightings_projected_gdf,
         state_boundaries_projected_gdf,
@@ -84,7 +85,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
         predicate="within",
     ).drop(columns=["index_right"])
 
-    # Nearest-neighbor join to associate sightings with specific road segments
+    # Assign each sighting to a road segment — aggregation and labelling are per-segment.
     print("🔄 Calculating distance to the nearest road....")
     sightings_joined = gpd.sjoin_nearest(
         sightings_joined,
@@ -97,16 +98,17 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
                 "geometry",
             ]
         ],
-        how="left",
+        how="left",  # retain sightings even when far from mapped OSM roads
         distance_col="distance_to_road",
     ).drop(columns=["index_right"])
 
-    # Deduplicate in case of equidistant segments
+    # OSM can yield ties at identical distance (parallel carriageways) — keep one assignment.
     sightings_joined = sightings_joined[
         ~sightings_joined.index.duplicated(keep="first")
     ]
 
     del sightings_projected_gdf, state_boundaries_projected_gdf, road_networks_projected_gdf
+    # Spatial joins materialise large intermediate frames — release before the next species file.
     gc.collect()
 
     return sightings_joined
@@ -123,14 +125,16 @@ def engineer_features(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Returns:
         Enriched GeoDataFrame with normalized features.
     """
+    # Abbreviated codes match map UI filters and keep feature cardinality low for ML.
     gdf["state"] = gdf["state"].map(fetcher.STATE_CODES)
 
-    # Overlay vegetation indices (NDVI) onto sighting points
+    # Habitat suitability at the observation point — sampled before segment aggregation.
     gdf = sample_raster_at_points(gdf, col_name="ndvi")
 
-    # Filter invalid vegetation values (outside standard 0 to 1 range)
+    # Values above 1.0 are bad pixels or unmasked fill — they would distort habitat scoring.
     gdf = gdf[gdf["ndvi"] <= 1.0]
 
+    # Round to metres — sub-metre precision is noise once averaged per road segment.
     gdf["distance_to_road"] = round(gdf["distance_to_road"].astype(float), 2)
 
     return gdf
@@ -148,10 +152,11 @@ def sample_raster_at_points(gdf, col_name):
     Returns:
         DataFrame with an additional column containing sampled raster values.
     """
+    # Sample via stored lat/lon — NDVI raster is indexed in geographic coordinates, not MGA geometry.
     coords = list(zip(gdf["longitude"], gdf["latitude"]))
 
     with rasterio.open("data/processed/ndvi_median.tif") as src:
-        # Align coordinate systems if necessary
+        # Wrong CRS would place samples off-pixel and return nonsense vegetation values.
         if src.crs.to_epsg() != 4326:
             from pyproj import Transformer
 
@@ -168,7 +173,7 @@ def sample_raster_at_points(gdf, col_name):
 
 
 def minmax(series, q_hi=0.99):
-    """Cap outliers at q_hi percentile before scaling."""
+    """Cap heavy tails before scaling so one sparse outlier segment cannot dominate a composite."""
     hi = series.quantile(q_hi)
     clipped = series.clip(upper=hi)
     return (clipped - clipped.min()) / (clipped.max() - clipped.min())
@@ -187,7 +192,7 @@ def engineer_proxy_risk_labels():
     """
     sightings_gdf = gpd.read_parquet("sightings.parquet")
 
-    # Aggregate species and habitat metrics at the road segment level
+    # Collapse point sightings to segment grain — the ML target is road-segment risk, not per event.
     road_segment_df = (
         sightings_gdf.groupby("road_segment_id")
         .agg(
@@ -210,7 +215,7 @@ def engineer_proxy_risk_labels():
 
     road_networks_gdf = gpd.read_parquet("data/processed/road_networks.parquet")
 
-    # adding the geometry for each road
+    # groupby drops geometry — reattach so spatial lag can use segment adjacency.
     road_segment_df = road_segment_df.merge(
         road_networks_gdf[["road_segment_id", "geometry"]],
         on="road_segment_id",
@@ -221,12 +226,11 @@ def engineer_proxy_risk_labels():
 
     road_segment_gdf = gpd.GeoDataFrame(
         road_segment_df, geometry="geometry", crs="EPSG:4326"
-    )
+    )  # road parquet geometry is stored in WGS84
     del road_segment_df
     gc.collect()
 
-    # Ecological Score: Represents the biological likelihood of wildlife presence
-    # Weighting prioritizes abundance and vegetation density
+    # Ecological likelihood of wildlife presence — sighting count weighted highest as direct evidence.
     road_segment_gdf["ecological_score"] = (
         0.30 * minmax(road_segment_gdf["sighting_count"])
         + 0.15 * minmax(road_segment_gdf["species_richness"])
@@ -236,7 +240,7 @@ def engineer_proxy_risk_labels():
         + 0.10 * minmax(road_segment_gdf["mean_body_mass_weight"])
     )
 
-    # Road Exposure: Represents the physical risk factor of the road infrastructure
+    # Infrastructure danger — proximity inverted so segments with closer sightings score higher.
     road_segment_gdf["proximity"] = 1 - minmax(road_segment_gdf["mean_distance_to_road"])
     road_segment_gdf["road_exposure_score"] = (
         0.35 * minmax(road_segment_gdf["speed_limit"])
@@ -244,42 +248,37 @@ def engineer_proxy_risk_labels():
         + 0.30 * minmax(road_segment_gdf["traffic_proxy"])
     )
 
-    # Interaction model: Risk is defined by the intersection of presence and exposure
+    # Multiplicative form — collision risk needs both wildlife presence AND road exposure.
     road_segment_gdf["raw_risk"] = (
         road_segment_gdf["ecological_score"] * road_segment_gdf["road_exposure_score"]
     )
 
-    # Spatial Regularization: Use K-Nearest Neighbors to smooth risk across contiguous segments.
-    # This prevents the model from 'memorizing' outlier segments and encourages spatial generalization.
+    # Corridor smoothing — animals cross adjacent segments, not isolated polylines.
+    # k=5 is the smallest neighbourhood that stays connected nationally without over-averaging.
     w = KNN.from_dataframe(road_segment_gdf, k=5)
-    w.transform = "r"  # Row-standardization for equal neighbor influence
+    w.transform = "r"  # row-standardise so segments with more neighbours are not overweighted
 
-    # Calculate spatial lag (average risk of 5 nearest neighbors)
     road_segment_gdf["spatial_lag"] = lag_spatial(
         w, road_segment_gdf["raw_risk"].values
     )
 
-    # Harmonic blending: 70% direct signal, 30% neighborhood context
+    # Local signal dominates; lag fills gaps where a segment has few own sightings.
     road_segment_gdf["blended_risk"] = (
         0.7 * road_segment_gdf["raw_risk"] + 0.3 * road_segment_gdf["spatial_lag"]
     )
 
-    # Final Proxy Label: Rank-transformed to a 0-1 probability scale
+    # Percentile rank — relative prioritisation scale robust to weight choices and outliers.
     road_segment_gdf["proxy_risk"] = road_segment_gdf["blended_risk"].rank(pct=True)
 
     road_segment_gdf.to_parquet("data/processed/road_segments.parquet", index=False)
 
 
-def visualize(gdf: gpd.GeoDataFrame = None):
+def visualize_sightings():
     """
-    Renders road segment proxy risk as LineString geometries over
-    state boundaries and the road network basemap.
-
-    Args:
-        gdf: GeoDataFrame of road segments with proxy_risk and LineString geometry.
+    Renders a geospatial visualization of wildlife sightings overlaid
+    on administrative and road network maps.
     """
-    if not gdf:
-        gdf = gpd.read_parquet("data/processed/road_segments.parquet")
+    gdf = gpd.read_parquet("sightings.parquet").to_crs(epsg="4326")
 
     print("⏳ Loading basemap layers....")
     state_boundaries_gdf = gpd.read_parquet("data/processed/state_boundaries.parquet")
@@ -293,6 +292,53 @@ def visualize(gdf: gpd.GeoDataFrame = None):
     road_networks_gdf.plot(ax=ax, color="black", linewidth=0.5, alpha=0.5)
 
     plot_data = gdf.copy()
+    plot_data["x"] = plot_data.geometry.x
+    plot_data["y"] = plot_data.geometry.y
+    plot_data["Risk"] = np.where(plot_data["distance_to_road"] > 500, "High risk", "Low risk")
+
+    # Stylized scatter plot with hue-based risk stratification
+    sns.scatterplot(
+        data=plot_data,
+        x="x",
+        y="y",
+        hue="Risk",
+        hue_order=["High risk", "Low risk"],
+        palette={"High risk": "#e74c3c", "Low risk": "#3498db"},
+        size="Risk",
+        sizes={"High risk": 20, "Low risk": 12},
+        alpha=0.9,
+        ax=ax,
+    )
+
+    ax.set_title("Wildlife Sighting Hotspots across Australia", fontsize=14)
+    ax.set_xlabel("Easting")
+    ax.set_ylabel("Northing")
+    ax.set_aspect("equal")
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def visualize_road_segments():
+    """
+    Renders road segment proxy risk as LineString geometries over
+    state boundaries and the road network basemap.
+    """
+    gdf = gpd.read_parquet("data/processed/road_segments.parquet")
+
+    print("⏳ Loading basemap layers....")
+    state_boundaries_gdf = gpd.read_parquet("data/processed/state_boundaries.parquet")
+    road_networks_gdf = gpd.read_parquet("data/processed/road_networks.parquet")
+
+    sns.set_theme(style="whitegrid", palette="deep")
+    _, ax = plt.subplots(figsize=(12, 10))
+
+    # Context layers only — risk segments are the visual focus.
+    state_boundaries_gdf.plot(ax=ax, color="green", alpha=0.2)
+    road_networks_gdf.plot(ax=ax, color="black", linewidth=0.5, alpha=0.5)
+
+    plot_data = gdf.copy()
+    # Top quintile highlight — map is for prioritisation, not continuous risk gradation.
     plot_data["Risk"] = np.where(
         plot_data["proxy_risk"] > 0.8, "High risk", "Low risk"
     )
@@ -301,6 +347,7 @@ def visualize(gdf: gpd.GeoDataFrame = None):
         ("Low risk", "#3498db", 0.4),
         ("High risk", "#e74c3c", 1.0),
     ]
+    # Draw low-risk segments first so high-risk lines render on top.
     for risk_label, color, linewidth in risk_styles:
         subset = plot_data[plot_data["Risk"] == risk_label]
         if subset.empty:
@@ -316,8 +363,8 @@ def visualize(gdf: gpd.GeoDataFrame = None):
     ax.legend(title="Risk")
 
     ax.set_title("Road Segment Proxy Risk across Australia", fontsize=14)
-    ax.set_xlabel("Easting")
-    ax.set_ylabel("Northing")
+    ax.set_xlabel("Latitude")
+    ax.set_ylabel("Longitude")
     ax.set_aspect("equal")
 
     plt.tight_layout()
