@@ -1,10 +1,11 @@
 import json
 import folium
-import folium.plugins
 import streamlit as st
 import geopandas as gpd
 import branca.colormap as cm
+from folium.plugins import HeatMap, MarkerCluster, FastMarkerCluster
 from streamlit_folium import st_folium
+from jinja2 import Template
 
 
 @st.cache_data
@@ -19,7 +20,7 @@ def load_sign_placements() -> list[tuple]:
     """
     with open("data/model/sign_placements.geojson", "r") as file:
         data = json.load(file)
-    
+
     placements = []
     for feature in data["features"]:
         coods = feature["geometry"]["coordinates"]  # GeoJSON is [lon, lat]
@@ -27,19 +28,26 @@ def load_sign_placements() -> list[tuple]:
         lat = coods[1]
         props = feature["properties"]
         placements.append((lat, lon, props))
-    
-    gdf = gpd.read_parquet("data/model/road_segments_scored.parquet")
-    gdf = gdf.to_crs(epsg=4326)
-    gdf["value"] = (gdf["sighting_count"] + gdf["species_richness"]) / 2
-    point = gdf.geometry.representative_point()
-    gdf["lon"] = point.x
-    gdf["lat"] = point.y
-    gdf = gdf[["lon", "lat", "value"]]
-    return gdf, placements
+
+    scored_gdf = gpd.read_parquet("data/model/road_segments_scored.parquet")
+    scored_gdf = scored_gdf.to_crs(epsg=4326)
+    scored_gdf["value"] = (
+        scored_gdf["sighting_count"] + scored_gdf["species_richness"]
+    ) / 2
+    point = scored_gdf.geometry.representative_point()
+
+    heatmap_gdf = scored_gdf.copy()
+    heatmap_gdf["lon"] = point.x
+    heatmap_gdf["lat"] = point.y
+    heatmap_gdf = heatmap_gdf[["lon", "lat", "value"]]
+
+    high_risk_gdf = scored_gdf[scored_gdf["predicted_risk"] > 0.98]
+
+    return heatmap_gdf, high_risk_gdf, placements
 
 
 def create_national_map():
-    gdf, placements = load_sign_placements()
+    heatmap_gdf, high_risk_gdf, placements = load_sign_placements()
 
     m = folium.Map(
         location=[-25.0, 133.0],   # geographic center of Australia
@@ -51,45 +59,66 @@ def create_national_map():
     # ── Layer 1: Risk HeatMap ─────────────────────────────────────────────────
     if st.checkbox("Risk HeatMap", value=True):
         heat_data = []
-        for index, row in gdf.iterrows():
+        for index, row in heatmap_gdf.iterrows():
             heat_data.append([row["lat"], row["lon"], row["value"]])
 
-        folium.plugins.HeatMap(
+        HeatMap(
             heat_data,
             min_opacity=0.4,
-            radius=14,
-            blur=9,
+            radius=12,
+            blur=8,
             max_zoom=13,
         ).add_to(m)
-    
+
     # ── Layer 2: High-Risk Segments ───────────────────────────────────────────
     if st.checkbox("High-Risk Segments", value=False):
         colormap = cm.LinearColormap(
             colors=["#ffffb2", "#fecc5c", "#fd8d3c", "#e31a1c"],
-            vmin=0.985,
+            vmin=0.98,
             vmax=1.0,
             caption="Predicted Risk Score"
         )
 
-        for lat, lon, props in placements:
-            risk = props.get("predicted_risk")
-            if risk is None:
-                continue
+        def style_fn(feature):
+            risk = feature["properties"].get("predicted_risk", 0.98)
+            return {
+                "fillColor": colormap(risk),
+                "color": colormap(risk),
+                "weight": 2,
+                "fillOpacity": 0.5,
+                "opacity": 0.8,
+            }
 
-            folium.CircleMarker(
-                location=[lat, lon],
-                radius=6,
-                color=colormap(risk),
-                fill=True,
-                fill_color=colormap(risk),
-                fill_opacity=0.7,
-                tooltip=folium.Tooltip(f"Risk: {risk:.4f}")
-            ).add_to(m)
+        def highlight_fn(feature):
+            return {
+                "fillOpacity": 0.9,
+                "weight": 4,
+            }
+        folium.GeoJson(
+            high_risk_gdf,
+            style_function=style_fn,
+            highlight_function=highlight_fn,
+            tooltip=folium.GeoJsonTooltip(
+                fields=["road_segment_id", "predicted_risk", "state"],
+                aliases=["Segment:", "Risk Score:", "State:"],
+                localize=True,
+                sticky=True,
+            ),
+        ).add_to(m)
 
         colormap.add_to(m)
-    
+
     # ── Layer 3: Sign Placements ──────────────────────────────────────────────
     if st.checkbox("Sign Placements", value=False):
+        fg = folium.FeatureGroup(name="Sign Placements", show=True)
+
+        # Below zoom 8: fast clusters, no icons
+        fast_cluster = FastMarkerCluster(
+            data=[[lat, lon] for lat, lon, props in placements]
+        ).add_to(fg)
+
+        # Above zoom 8: full markers with icons
+        detail_cluster = MarkerCluster(show=True).add_to(fg)
         for lat, lon, props in placements:
             tooltip_lines = ["<b>Proposed sign location</b>"]
             for key, val in props.items():
@@ -98,14 +127,26 @@ def create_national_map():
 
             folium.Marker(
                 location=[lat, lon],
-                icon=folium.Icon(
-                    icon="warning-sign",
-                    prefix="glyphicon",
-                    color="red",
-                    icon_color="white"
-                ),
+                icon=folium.Icon(icon="warning-sign", prefix="glyphicon", color="red", icon_color="white"),
                 tooltip=folium.Tooltip("<br>".join(tooltip_lines))
-            ).add_to(m)
+            ).add_to(detail_cluster)
+
+        fg.add_to(m)
+
+    title_html = """
+    <div style="position:fixed; top:12px; left:50%; transform:translateX(-50%);
+        background:white; padding:8px 18px; border-radius:8px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.2); font-family:sans-serif;
+        font-size:15px; font-weight:600; z-index:9999; color:#1a1a1a;">
+        🦘 Australian Wildlife-Vehicle Collision Risk
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(title_html))
+
+    folium.plugins.Fullscreen(position="bottomright").add_to(m)
+    folium.plugins.MeasureControl(position="bottomright").add_to(m)
+    folium.plugins.MiniMap(position="bottomleft", toggle_display=True).add_to(m)
+    # folium.LayerControl(collapsed=False).add_to(m)
 
     # ── Render ────────────────────────────────────────────────────────────────
     st_folium(m, width="100%", height=600, returned_objects=[])
