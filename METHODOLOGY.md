@@ -555,7 +555,7 @@ modelling choices alone.
 
 ### 7.6 Geographic Coverage Bias in Sign Placement Recommendations
 
-The 1,207 sign placement recommendations produced by the pipeline (threshold:
+The 1,189 sign placement recommendations produced by the pipeline (threshold:
 `predicted_risk ≥ 0.98`, spatial deduplication: 2km minimum separation) are not
 uniformly distributed across Australia. The state-level breakdown of selected
 segments is:

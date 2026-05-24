@@ -48,7 +48,7 @@ def main() -> None:
     ]
 
     print("Loading road segment labels...")
-    road_segments_gdf = gpd.read_parquet("road_segments.parquet")
+    road_segments_gdf = gpd.read_parquet("data/processed/road_segments.parquet").to_crs(epsg=32754)
 
     print("Adding spatial lag features...")
     road_segments_gdf = add_spatial_lag_features(road_segments_gdf, cols=lag_cols)

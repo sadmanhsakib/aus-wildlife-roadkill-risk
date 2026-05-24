@@ -515,9 +515,26 @@ def prepare_state_boundaries():
     state_boundaries = state_boundaries.dissolve(by="state").reset_index()
     state_boundaries["state"] = state_boundaries["state"].map(STATE_CODES)
 
+    state_boundaries = state_boundaries.to_crs(epsg=4326)
+
     state_boundaries.to_parquet("data/processed/state_boundaries.parquet", index=False)
     print(
         "✅ State network parsed and saved to data/processed/state_boundaries.parquet"
+    )
+
+    state_boundaries_simplified = state_boundaries.copy()
+    # 0.01 degrees ≈ 1km, sufficient for state-level display
+    state_boundaries_simplified["geometry"] = (
+        state_boundaries_simplified.geometry.simplify(
+            tolerance=0.01, preserve_topology=True
+        )
+    )
+
+    state_boundaries_simplified.to_parquet(
+        "data/processed/state_boundaries_simplified.parquet", index=False
+    )
+    print(
+        "✅ State network parsed and saved to data/processed/state_boundaries_simplified.parquet"
     )
 
 

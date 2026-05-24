@@ -268,7 +268,9 @@ def engineer_proxy_risk_labels():
     # Percentile rank — relative prioritisation scale robust to weight choices and outliers.
     road_segment_gdf["proxy_risk"] = road_segment_gdf["blended_risk"].rank(pct=True)
 
-    road_segment_gdf.to_parquet("data/processed/road_segments.parquet", index=False)
+    output_path = "data/processed/road_segments.parquet"
+    road_segment_gdf.to_parquet(output_path, index=False)
+    print(f"✅ Road Segment GDF exported to {output_path}. ")
 
 
 def visualize_sightings():

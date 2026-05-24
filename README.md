@@ -126,7 +126,7 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
 ║  XGBoost Regressor                                                   ║
 ║  + Spatial lag features added as explicit model inputs (KNN k=5)     ║
 ║  + Stochastic Spatial Block CV (5-fold, jittered ±15km boundaries)   ║
-║  + SHAP TreeExplainer → data/model/shap_values.parquet                     ║
+║  + SHAP TreeExplainer → data/model/shap_values.parquet               ║
 ║  + Moran's I on residuals → spatial leakage audit                    ║
 ║  Target metrics: spatial CV R² ≥ 0.60 · MAE ≤ 0.08                   ║
 ╚════════════════════════════════╤═════════════════════════════════════╝
@@ -136,7 +136,7 @@ The platform is a sequential, modular pipeline — from raw API calls to a live 
 ║              SIGN PLACEMENT ENGINE  (sign_placement.py)              ║
 ║  Risk threshold > 0.98 · per-state descending-risk selection         ║
 ║  2km buffer spatial deduplication · output: sign_placements.geojson  ║
-║  Result: 1,207 sign recommendations nationally                       ║
+║  Result: 1,189 sign recommendations nationally                       ║
 ╚════════════════════════════════╤═════════════════════════════════════╝
                                  │
                                  ▼
@@ -241,13 +241,14 @@ The final feature store (`sightings.parquet`) contains 413,000 rows across 11 sp
 | `body_mass_weight` | `float` | Collision severity proxy by mass | Hand-calibrated per species (0.25–1.00) |
 | `nocturnal_weight` | `float` | Nocturnal activity risk multiplier | Hand-calibrated per species (0.30–0.95) |
 | `peak_season_weight` | `float` | Breeding/dispersal period multiplier | 1.3 if peak month else 1.0 |
-| `ndvi` | `float` | Median NDVI at sighting location | Sampled from MODIS composite raster |
+| `geometry` | `geometry` | Coordinates of the occurrence | From Latitude and Longitude |
+| `state` | `str` | Australian state/territory code | Spatial join to ABS boundaries |
 | `road_segment_id` | `str` | Nearest OSM road segment ID | Nearest-neighbour spatial join |
 | `road_class` | `str` | Road type hierarchy | Motorway → Track |
 | `speed_limit` | `int` | Speed zone in km/h | Imputed from road class lookup |
 | `traffic_proxy` | `float` | Relative traffic volume (0.2–1.0) | Imputed from road class lookup |
 | `distance_to_road` | `float` | Distance to nearest road (metres) | Calculated in EPSG:32754 |
-| `state` | `str` | Australian state/territory code | Spatial join to ABS boundaries |
+| `ndvi` | `float` | Median NDVI at sighting location | Sampled from MODIS composite raster |
 
 ---
 
@@ -323,8 +324,8 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 | **5** | Proxy label construction | Ecological × road exposure · spatial lag blend · rank normalisation | ✅ Complete |
 | **6** | Model training (XGBoost + SHAP + Moran's I) | Stochastic spatial block CV · spatial lag input features · SHAP values | ✅ Complete |
 | **7** | Optuna hyperparameter search | 50-trial Bayesian optimisation (TPE sampler, multi-seed CV) | ✅ Complete |
-| **8** | Sign placement engine | Risk threshold > 0.98 · per-state selection · 2km buffer dedup · 1,207 signs | ✅ Complete |
-| **9** | Streamlit + Folium application | Risk heatmap · segment overlay · SHAP waterfall panel | ⏳ Pending |
+| **8** | Sign placement engine | Risk threshold > 0.98 · per-state selection · 2km buffer dedup · 1,189 signs | ✅ Complete |
+| **9** | Streamlit + Folium application | Risk heatmap · segment overlay · SHAP waterfall panel | ⏳ In Progress |
 | **10** | METHODOLOGY.md + documentation | Data provenance · label rationale · Moran's I result · limitations | ✅ Complete |
 
 **Pipeline output:**
@@ -334,7 +335,7 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 - `data/model/feature_cols.pkl` — Serialised feature column list
 - `data/model/road_segments_scored.parquet` — All segments with `predicted_risk` · ~54MB
 - `data/model/shap_values.parquet` — Per-segment SHAP decomposition · ~9MB
-- `data/model/sign_placements.geojson` — 1,207 deduplicated sign recommendations · ~2.3MB
+- `data/model/sign_placements.geojson` — 1,189 deduplicated sign recommendations · ~2.3MB
 
 ---
 
@@ -444,7 +445,7 @@ aus-wildlife-roadkill-risk-mapper/
 │   │   ├── model.pkl           # Trained XGBoost model (Optuna-optimised)
 │   │   ├── road_segments_scored.parquet  # All segments with predicted_risk (~54MB)
 │   │   ├── shap_values.parquet     # Per-segment SHAP decomposition (~9MB)
-│   │   └── sign_placements.geojson # 1,207 deduplicated sign recommendations
+│   │   └── sign_placements.geojson # 1,189 deduplicated sign recommendations
 │   ├── processed/              # processed files from raw downloads
 │   │   └── ndvi_median.tif     # vegetation data of Australia
 │   │   └── road_networks.parquet    # road network of Australia

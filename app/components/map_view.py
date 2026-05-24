@@ -1,5 +1,6 @@
 import json
 import folium
+import pandas as pd
 import geopandas as gpd
 import streamlit as st
 import branca.colormap as cm
@@ -60,6 +61,96 @@ def get_highrisk_gdf() -> gpd.GeoDataFrame:
     return scored_gdf[scored_gdf["predicted_risk"] > 0.98]
 
 
+@st.cache_data
+def load_state_stats(path: str = "data/model/road_segments_scored.parquet") -> dict:
+    df = pd.read_parquet(path, columns=["state", "predicted_risk"])
+    stats = {}
+    for state, group in df.groupby("state"):
+        stats[state] = {
+            "total_segments": len(group),
+            "critical_segments": int((group["predicted_risk"] > 0.98).sum()),
+            "mean_risk": round(group["predicted_risk"].mean(), 4),
+            "max_risk": round(group["predicted_risk"].max(), 4),
+        }
+    return stats
+
+
+@st.cache_resource
+def load_state_boundaries(
+    path: str = "data/processed/state_boundaries_simplified.parquet",
+) -> gpd.GeoDataFrame:
+    return gpd.read_parquet(path)
+
+
+def add_state_layer(m: folium.Map) -> gpd.GeoDataFrame:
+    state_boundaries_gdf = load_state_boundaries()
+    state_stats = load_state_stats()
+    
+    state_boundaries_gdf["total_segments"] = state_boundaries_gdf["state"].map(
+        lambda s: state_stats.get(s, {}).get("total_segments", "N/A")
+    )
+    state_boundaries_gdf["critical_segments"] = state_boundaries_gdf["state"].map(
+        lambda s: state_stats.get(s, {}).get("critical_segments", "N/A")
+    )
+    state_boundaries_gdf["mean_risk"] = state_boundaries_gdf["state"].map(
+        lambda s: state_stats.get(s, {}).get("mean_risk", "N/A")
+    )
+    state_boundaries_gdf["max_risk"] = state_boundaries_gdf["state"].map(
+        lambda s: state_stats.get(s, {}).get("max_risk", "N/A")
+    )
+
+    def state_style(feature):
+        return {
+            "fillColor": "#1a1a2e",
+            "color": "#4a90d9",
+            "weight": 1.5,
+            "fillOpacity": 0.05,
+            "opacity": 0.7,
+        }
+
+    def state_highlight(feature):
+        return {
+            "fillColor": "#4a90d9",
+            "fillOpacity": 0.2,
+            "weight": 2.5,
+        }
+
+    folium.GeoJson(
+        state_boundaries_gdf,
+        name="State Boundaries",
+        style_function=state_style,
+        highlight_function=state_highlight,
+        tooltip=folium.GeoJsonTooltip(
+            fields=[
+                "state",
+                "total_segments",
+                "critical_segments",
+                "mean_risk",
+                "max_risk",
+            ],
+            aliases=[
+                "State",
+                "Road Segments Scored",
+                "Critical Segments (≥0.98)",
+                "Mean Risk Score",
+                "Peak Risk Score",
+            ],
+            localize=True,
+            sticky=True,
+            style=(
+                "background-color: #1a1a2e;"
+                "color: white;"
+                "font-family: monospace;"
+                "font-size: 12px;"
+                "padding: 8px;"
+                "border-radius: 4px;"
+                "border: 1px solid #4a90d9;"
+            ),
+        ),
+        zoom_on_click=True,
+    ).add_to(m)
+
+
 def create_national_map():
     placements = load_sign_placement_data()
 
@@ -69,9 +160,13 @@ def create_national_map():
         tiles="CartoDB positron",  # clean light basemap; no labels cluttering risk data
         prefer_canvas=True         # Canvas renderer is faster for many polygons
     )
+    
+    # ── Layer 0: State Boundaries ─────────────────────────────────────────────
+    if st.checkbox("State Boundaries", value=True):
+        add_state_layer(m)
 
     # ── Layer 1: Risk HeatMap ─────────────────────────────────────────────────
-    if st.checkbox("Risk HeatMap", value=True):
+    if st.checkbox("Risk HeatMap", value=False):
         HeatMap(
             get_heatmap_data(),
             min_opacity=0.4,
