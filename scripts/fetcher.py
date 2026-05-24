@@ -124,12 +124,7 @@ NOCTURNAL = {
 
 
 def main():
-    prepare_road_network()
-    return
-    files = os.listdir("sightings/")
-    files = [os.path.join("sightings/", file) for file in files]
-
-    merge("sightings.parquet", files, shouldDelete=False)
+    prepare_state_boundaries()
 
 
 async def get_gbif_data(species_key: int, state: str) -> str:
@@ -444,8 +439,8 @@ def prepare_road_network():
     """
     print("⏳ Loading the road network...")
 
-    road_network = gpd.read_file(
-        "data/raw/australia.gpkg",
+    road_networks_gdf = gpd.read_file(
+        "data/raw/road_network.gpkg",
         layer="gis_osm_roads_free",
         columns=["osm_id", "name", "fclass", "geometry"],
     )
@@ -464,15 +459,15 @@ def prepare_road_network():
     }
 
     # Retain only road classes covered by the risk model
-    road_network = road_network[road_network["fclass"].isin(FCLASS_DEFAULTS.keys())]
-    road_network["speed_zone"] = road_network["fclass"].map(
+    road_networks_gdf = road_networks_gdf[road_networks_gdf["fclass"].isin(FCLASS_DEFAULTS.keys())]
+    road_networks_gdf["speed_zone"] = road_networks_gdf["fclass"].map(
         lambda x: FCLASS_DEFAULTS[x][0]
     )
-    road_network["traffic_proxy"] = road_network["fclass"].map(
+    road_networks_gdf["traffic_proxy"] = road_networks_gdf["fclass"].map(
         lambda x: FCLASS_DEFAULTS[x][1]
     )
 
-    road_network.rename(
+    road_networks_gdf.rename(
         columns={
             "osm_id": "road_segment_id",
             "fclass": "road_class",
@@ -482,18 +477,11 @@ def prepare_road_network():
         inplace=True,
     )
 
-    # Reproject to MGA Zone 54 for accurate metric distance calculations
-    road_network_projected = road_network.to_crs("EPSG:32754")
-    del road_network
-    gc.collect()
-
-    road_network_projected.to_parquet(
-        "data/processed/australia_projected.parquet", index=False
-    )
-    print("✅ Road network parsed and saved to australia_projected.parquet")
+    road_networks_gdf.to_parquet("data/processed/road_networks.parquet", index=False)
+    print("✅ Road network parsed and saved to data/processed/road_networks.parquet")
 
 
-def prepare_state_network():
+def prepare_state_boundaries():
     """
     Loads and reprojects the ABS SA1 state boundary shapefile into the analysis CRS.
 
@@ -502,20 +490,26 @@ def prepare_state_network():
     with the sightings and road network datasets.
     """
     print("⏳ Loading the state data...")
-
-    states = gpd.read_file(
+    state_boundaries = gpd.read_file(
         "data/raw/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
     )
 
     # Exclude non-state jurisdictions (e.g., offshore territories, Jervis Bay)
-    states = states[states["STE_NAME21"].isin(STATE_CODES.keys())]
-    states = states.rename(columns={"STE_NAME21": "state"})
-    states_projected = states.to_crs("EPSG:32754")
-    del states
-    gc.collect()
+    state_boundaries = state_boundaries[
+        state_boundaries["STE_NAME21"].isin(STATE_CODES.keys())
+    ]
+    state_boundaries = state_boundaries.rename(columns={"STE_NAME21": "state"})
 
-    states_projected.to_parquet("data/processed/states_projected.parquet", index=False)
-    print("✅ State network parsed and saved to states_projected.parquet")
+    state_boundaries = state_boundaries.dissolve(by="state").reset_index()
+
+    state_boundaries["geometry"] = state_boundaries.geometry.simplify(
+        tolerance=500, preserve_topology=True
+    )
+
+    state_boundaries.to_parquet("data/processed/state_boundaries.parquet", index=False)
+    print(
+        "✅ State network parsed and saved to data/processed/state_boundaries.parquet"
+    )
 
 
 def build_ndvi_median_composite():
@@ -534,7 +528,7 @@ def build_ndvi_median_composite():
     print("🔄 Merging the .tif files (memory-efficient block-wise processing)...")
 
     tif_folder = "data/raw/vegetation/"
-    output_path = "data/processed/ndvi_median_australia.tif"
+    output_path = "data/processed/ndvi_median.tif"
 
     tif_files = sorted(glob.glob(os.path.join(tif_folder, "*.tif")))
     if not tif_files:

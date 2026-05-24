@@ -48,27 +48,27 @@ def main() -> None:
     ]
 
     print("Loading road segment labels...")
-    segment_gdf = gpd.read_parquet("road_segment_labels.parquet")
+    road_segments_gdf = gpd.read_parquet("road_segments.parquet")
 
     print("Adding spatial lag features...")
-    segment_gdf = add_spatial_lag_features(segment_gdf, cols=lag_cols)
+    road_segments_gdf = add_spatial_lag_features(road_segments_gdf, cols=lag_cols)
 
     # Extract features and target once to avoid redundant computations
-    X, y, feature_cols = get_features_and_target(segment_gdf)
+    X, y, feature_cols = get_features_and_target(road_segments_gdf)
 
     print("Training XGBoost model...")
-    model = train_model(segment_gdf, X, y)
+    model = train_model(road_segments_gdf, X, y)
     
     print("Evaluating spatial autocorrelation...")
-    evaluate_spatial_autocorrelation(gdf=segment_gdf, model=model, X=X)
+    evaluate_spatial_autocorrelation(gdf=road_segments_gdf, model=model, X=X)
 
-    validate_geographic_holdout(segment_gdf, lag_cols=lag_cols, holdout_state="TAS")
+    validate_geographic_holdout(road_segments_gdf, lag_cols=lag_cols, holdout_state="TAS")
 
     print("Computing SHAP values...")
-    compute_shap(model=model, X=X, feature_cols=feature_cols, gdf=segment_gdf)
+    compute_shap(model=model, X=X, feature_cols=feature_cols, gdf=road_segments_gdf)
 
     print("Scoring all segments...")
-    score_all_segments(model=model, gdf=segment_gdf, X=X)
+    score_all_segments(model=model, gdf=road_segments_gdf, X=X)
 
     print("Saving model artifacts...")
     joblib.dump(model, "data/model/model.pkl")

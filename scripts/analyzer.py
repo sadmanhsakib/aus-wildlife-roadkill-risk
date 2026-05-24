@@ -23,6 +23,9 @@ LONGITUDE_COLUMN = "longitude"
 
 
 def main():
+    visualize()
+    
+    return
     p = "backup/"
 
     for filename in os.listdir(p):
@@ -36,14 +39,14 @@ def main():
             sightings_gdf = engineer_features(sightings_gdf)
 
             sightings_gdf.to_parquet(f"sightings/{filename}", index=False)
-            print(f"✅ {filename} processed successfully.\n")
-            
+            print(f"✅ sightings/{filename} processed successfully.\n")
+
     fetcher.merge(
         "sightings.parquet",
         [f"sightings/{f}" for f in os.listdir("sightings/")],
         has_geometry=True,
     )
-    
+
     engineer_proxy_risk_labels()
 
 
@@ -58,22 +61,25 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     Returns:
         GeoDataFrame enriched with state and nearest road segment metadata.
     """
-    sightings_projected = gpd.GeoDataFrame(
+    sightings_projected_gdf = gpd.GeoDataFrame(
         df,
         geometry=gpd.points_from_xy(df[LONGITUDE_COLUMN], df[LATITUDE_COLUMN]),
         crs="EPSG:4326",
-    ).to_crs("EPSG:32754")
+    ).to_crs(epsg=32754)
 
-    print("⏳ Loading boundary and network data....")
-    states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
-    road_network_projected = gpd.read_parquet(
-        "data/processed/australia_projected.parquet"
-    )
+    print("⏳ Loading state boundary data....")
+    state_boundaries_projected_gdf = gpd.read_parquet(
+        "data/processed/state_boundaries.parquet"
+    ).to_crs(epsg=32754)
+    print("⏳ Loading road network data....")
+    road_networks_projected_gdf = gpd.read_parquet(
+        "data/processed/road_networks.parquet"
+    ).to_crs(epsg=32754)
 
     # Intersection with state boundaries for regional categorization
     sightings_joined = gpd.sjoin(
-        sightings_projected,
-        states_projected,
+        sightings_projected_gdf,
+        state_boundaries_projected_gdf,
         how="inner",
         predicate="within",
     ).drop(columns=["index_right"])
@@ -82,7 +88,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     print("🔄 Calculating distance to the nearest road....")
     sightings_joined = gpd.sjoin_nearest(
         sightings_joined,
-        road_network_projected[
+        road_networks_projected_gdf[
             [
                 "road_segment_id",
                 "road_class",
@@ -100,7 +106,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
         ~sightings_joined.index.duplicated(keep="first")
     ]
 
-    del sightings_projected, states_projected, road_network_projected
+    del sightings_projected_gdf, state_boundaries_projected_gdf, road_networks_projected_gdf
     gc.collect()
 
     return sightings_joined
@@ -144,7 +150,7 @@ def sample_raster_at_points(gdf, col_name):
     """
     coords = list(zip(gdf["longitude"], gdf["latitude"]))
 
-    with rasterio.open("data/processed/ndvi_median_australia.tif") as src:
+    with rasterio.open("data/processed/ndvi_median.tif") as src:
         # Align coordinate systems if necessary
         if src.crs.to_epsg() != 4326:
             from pyproj import Transformer
@@ -179,11 +185,11 @@ def engineer_proxy_risk_labels():
     3. Blends raw risk with a Spatial Lag to prevent overfitting to specific patches.
     4. Generates a percentile-based proxy risk label.
     """
-    gdf = gpd.read_parquet("sightings.parquet")
+    sightings_gdf = gpd.read_parquet("sightings.parquet")
 
     # Aggregate species and habitat metrics at the road segment level
     road_segment_df = (
-        gdf.groupby("road_segment_id")
+        sightings_gdf.groupby("road_segment_id")
         .agg(
             state=("state", "first"),
             sighting_count=("species", "count"),
@@ -199,22 +205,22 @@ def engineer_proxy_risk_labels():
         )
         .reset_index()
     )
-    del gdf
+    del sightings_gdf
     gc.collect()
 
-    roads_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
-    
+    road_networks_gdf = gpd.read_parquet("data/processed/road_networks.parquet")
+
     # adding the geometry for each road
     road_segment_df = road_segment_df.merge(
-        roads_projected[["road_segment_id", "geometry"]],
+        road_networks_gdf[["road_segment_id", "geometry"]],
         on="road_segment_id",
         how="left",
     )
-    del roads_projected
+    del road_networks_gdf
     gc.collect()
 
     road_segment_gdf = gpd.GeoDataFrame(
-        road_segment_df, geometry="geometry", crs="EPSG:32754"
+        road_segment_df, geometry="geometry", crs="EPSG:4326"
     )
     del road_segment_df
     gc.collect()
@@ -261,58 +267,57 @@ def engineer_proxy_risk_labels():
     # Final Proxy Label: Rank-transformed to a 0-1 probability scale
     road_segment_gdf["proxy_risk"] = road_segment_gdf["blended_risk"].rank(pct=True)
 
-    road_segment_gdf.to_parquet("road_segment_labels.parquet", index=False)
+    road_segment_gdf.to_parquet("data/processed/road_segments.parquet", index=False)
 
 
-def visualize(gdf: gpd.GeoDataFrame):
+def visualize(gdf: gpd.GeoDataFrame = None):
     """
-    Renders a geospatial visualization of wildlife sightings overlaid 
-    on administrative and road network maps.
+    Renders road segment proxy risk as LineString geometries over
+    state boundaries and the road network basemap.
 
     Args:
-        gdf: GeoDataFrame containing sightings and risk classifications.
+        gdf: GeoDataFrame of road segments with proxy_risk and LineString geometry.
     """
     if not gdf:
-        df = pd.read_parquet("sightings.parquet")
-        gdf = gpd.GeoDataFrame(
-            df,
-            geometry=gpd.points_from_xy(df[LONGITUDE_COLUMN], df[LATITUDE_COLUMN]),
-            crs="EPSG:4326",
-        ).to_crs("EPSG:32754")
+        gdf = gpd.read_parquet("data/processed/road_segments.parquet")
 
     print("⏳ Loading basemap layers....")
-    states_projected = gpd.read_parquet("data/processed/states_projected.parquet")
-    roads_projected = gpd.read_parquet("data/processed/australia_projected.parquet")
+    state_boundaries_gdf = gpd.read_parquet("data/processed/state_boundaries.parquet")
+    road_networks_gdf = gpd.read_parquet("data/processed/road_networks.parquet")
 
     sns.set_theme(style="whitegrid", palette="deep")
-    fig, ax = plt.subplots(figsize=(12, 10))
+    _, ax = plt.subplots(figsize=(12, 10))
 
     # Basemap rendering
-    states_projected.plot(ax=ax, color="green", alpha=0.2)
-    roads_projected.plot(ax=ax, color="black", linewidth=0.5, alpha=0.5)
+    state_boundaries_gdf.plot(ax=ax, color="green", alpha=0.2)
+    road_networks_gdf.plot(ax=ax, color="black", linewidth=0.5, alpha=0.5)
 
     plot_data = gdf.copy()
-    plot_data["x"] = plot_data.geometry.x
-    plot_data["y"] = plot_data.geometry.y
-    plot_data["Risk"] = plot_data["risk_label"].map({1: "High risk", 0: "Low risk"})
-
-    # Stylized scatter plot with hue-based risk stratification
-    sns.scatterplot(
-        data=plot_data,
-        x="x",
-        y="y",
-        hue="Risk",
-        hue_order=["High risk", "Low risk"],
-        palette={"High risk": "#e74c3c", "Low risk": "#3498db"},
-        size="Risk",
-        sizes={"High risk": 20, "Low risk": 12},
-        alpha=0.9,
-        ax=ax,
+    plot_data["Risk"] = np.where(
+        plot_data["proxy_risk"] > 0.8, "High risk", "Low risk"
     )
 
-    ax.set_title("Wildlife Sighting Hotspots across Australia", fontsize=14)
-    ax.set_xlabel("Easting (m)")
-    ax.set_ylabel("Northing (m)")
+    risk_styles = [
+        ("Low risk", "#3498db", 0.4),
+        ("High risk", "#e74c3c", 1.0),
+    ]
+    for risk_label, color, linewidth in risk_styles:
+        subset = plot_data[plot_data["Risk"] == risk_label]
+        if subset.empty:
+            continue
+        subset.plot(
+            ax=ax,
+            color=color,
+            linewidth=linewidth,
+            alpha=0.9,
+            label=risk_label,
+        )
+
+    ax.legend(title="Risk")
+
+    ax.set_title("Road Segment Proxy Risk across Australia", fontsize=14)
+    ax.set_xlabel("Easting")
+    ax.set_ylabel("Northing")
     ax.set_aspect("equal")
 
     plt.tight_layout()

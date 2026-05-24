@@ -329,7 +329,7 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 
 **Pipeline output:**
 - `sightings.parquet` — 413,000 sighting rows · 11 species · 17 features · ~17MB
-- `road_segment_labels.parquet` — Proxy risk score per road segment · ~53MB
+- `data/processed/road_segments.parquet` — Proxy risk score per road segment · ~53MB
 - `data/model/model.pkl` — Trained XGBoost model (Optuna-optimised) · ~13MB
 - `data/model/feature_cols.pkl` — Serialised feature column list
 - `data/model/road_segments_scored.parquet` — All segments with `predicted_risk` · ~54MB
@@ -439,20 +439,22 @@ aus-wildlife-roadkill-risk-mapper/
 │   ├── sign_placement.py       # Risk threshold + 2km buffer spatial deduplication engine
 │   └── test.py                 # Scratch validation helpers
 ├── data/  (gitignored)
-│   ├── blueprint.md            # Full technical design document
 │   ├── model/                  # Model files
-│   │   ├── model.pkl           # Trained XGBoost model (Optuna-optimised)
 │   │   ├── feature_cols.pkl    # Serialised feature column list
+│   │   ├── model.pkl           # Trained XGBoost model (Optuna-optimised)
 │   │   ├── road_segments_scored.parquet  # All segments with predicted_risk (~54MB)
 │   │   ├── shap_values.parquet     # Per-segment SHAP decomposition (~9MB)
 │   │   └── sign_placements.geojson # 1,207 deduplicated sign recommendations
-│   ├── processed/              # Intermediate projected parquets and tif
+│   ├── processed/              # processed files from raw downloads
+│   │   └── ndvi_median.tif     # vegetation data of Australia
+│   │   └── road_networks.parquet    # road network of Australia
+│   │   └── road_segments.parquet    # labelled road segments of Australia
+│   │   └── state_boundaries.parquet # state boundaries of Australia
 │   └── raw/                    # Shapefiles, GeoPackage, NDVI rasters
 ├── notebooks/
 │   └── test.ipynb              # Exploratory scratch notebook
 ├── sightings/                  # Per-species parquet files (11 files, one per species)
 ├── sightings.parquet           # Final feature store — 413k rows, 17 features (~18MB)
-├── road_segment_labels.parquet # Proxy risk score per segment (~52MB)
 ├── METHODOLOGY.md              # Research design, label rationale, validation, limitations
 ├── requirements.txt
 └── LICENSE

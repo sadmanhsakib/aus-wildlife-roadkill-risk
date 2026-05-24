@@ -9,7 +9,7 @@ from jinja2 import Template
 
 
 @st.cache_data
-def load_sign_placements() -> list[tuple]:
+def load_sign_placement_data() -> list[tuple]:
     """
     Load sign placements once per session using Streamlit's caching.
     
@@ -28,26 +28,39 @@ def load_sign_placements() -> list[tuple]:
         lat = coods[1]
         props = feature["properties"]
         placements.append((lat, lon, props))
+    return placements
 
+
+@st.cache_data
+def load_gdf_data() -> list[tuple]:
     scored_gdf = gpd.read_parquet("data/model/road_segments_scored.parquet")
     scored_gdf = scored_gdf.to_crs(epsg=4326)
-    scored_gdf["value"] = (
-        scored_gdf["sighting_count"] + scored_gdf["species_richness"]
-    ) / 2
-    point = scored_gdf.geometry.representative_point()
-
-    heatmap_gdf = scored_gdf.copy()
-    heatmap_gdf["lon"] = point.x
-    heatmap_gdf["lat"] = point.y
-    heatmap_gdf = heatmap_gdf[["lon", "lat", "value"]]
-
-    high_risk_gdf = scored_gdf[scored_gdf["predicted_risk"] > 0.98]
-
-    return heatmap_gdf, high_risk_gdf, placements
+    return scored_gdf
 
 
 def create_national_map():
-    heatmap_gdf, high_risk_gdf, placements = load_sign_placements()
+    placements = load_sign_placement_data()
+    scored_gdf = load_gdf_data()
+
+    @st.cache_data
+    def get_heatmap_data() -> list:
+        heatmap_gdf = scored_gdf.copy()
+        heatmap_gdf["value"] = (
+            heatmap_gdf["sighting_count"] + heatmap_gdf["species_richness"]
+        ) / 2
+
+        point = heatmap_gdf.geometry.representative_point()
+        heatmap_gdf["lon"] = point.x
+        heatmap_gdf["lat"] = point.y
+
+        heat_data = []
+        for index, row in heatmap_gdf.iterrows():
+            heat_data.append([row["lat"], row["lon"], row["value"]])
+        return heat_data
+
+    @st.cache_data
+    def get_highrisk_gdf() -> gpd.GeoDataFrame:
+        return scored_gdf[scored_gdf["predicted_risk"] > 0.98]
 
     m = folium.Map(
         location=[-25.0, 133.0],   # geographic center of Australia
@@ -58,12 +71,8 @@ def create_national_map():
 
     # ── Layer 1: Risk HeatMap ─────────────────────────────────────────────────
     if st.checkbox("Risk HeatMap", value=True):
-        heat_data = []
-        for index, row in heatmap_gdf.iterrows():
-            heat_data.append([row["lat"], row["lon"], row["value"]])
-
         HeatMap(
-            heat_data,
+            get_heatmap_data(),
             min_opacity=0.4,
             radius=12,
             blur=8,
@@ -95,7 +104,7 @@ def create_national_map():
                 "weight": 4,
             }
         folium.GeoJson(
-            high_risk_gdf,
+            get_highrisk_gdf(),
             style_function=style_fn,
             highlight_function=highlight_fn,
             tooltip=folium.GeoJsonTooltip(
