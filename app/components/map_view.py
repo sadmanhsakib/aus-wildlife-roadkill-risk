@@ -1,11 +1,10 @@
 import json
 import folium
-import streamlit as st
 import geopandas as gpd
+import streamlit as st
 import branca.colormap as cm
-from folium.plugins import HeatMap, MarkerCluster, FastMarkerCluster
+from folium.plugins import HeatMap, MarkerCluster
 from streamlit_folium import st_folium
-from jinja2 import Template
 
 
 @st.cache_data
@@ -32,35 +31,37 @@ def load_sign_placement_data() -> list[tuple]:
 
 
 @st.cache_data
-def load_gdf_data() -> list[tuple]:
+def load_stored_gdf_data() -> list[tuple]:
     scored_gdf = gpd.read_parquet("data/model/road_segments_scored.parquet")
     scored_gdf = scored_gdf.to_crs(epsg=4326)
     return scored_gdf
 
 
+@st.cache_data
+def get_heatmap_data() -> list:
+    heatmap_gdf = load_stored_gdf_data()
+    heatmap_gdf["value"] = (
+        heatmap_gdf["sighting_count"] + heatmap_gdf["species_richness"]
+    ) / 2
+
+    point = heatmap_gdf.geometry.representative_point()
+    heatmap_gdf["lon"] = point.x
+    heatmap_gdf["lat"] = point.y
+
+    heat_data = []
+    for _, row in heatmap_gdf.iterrows():
+        heat_data.append([row["lat"], row["lon"], row["value"]])
+    return heat_data
+
+
+@st.cache_data
+def get_highrisk_gdf() -> gpd.GeoDataFrame:
+    scored_gdf = load_stored_gdf_data()
+    return scored_gdf[scored_gdf["predicted_risk"] > 0.98]
+
+
 def create_national_map():
     placements = load_sign_placement_data()
-    scored_gdf = load_gdf_data()
-
-    @st.cache_data
-    def get_heatmap_data() -> list:
-        heatmap_gdf = scored_gdf.copy()
-        heatmap_gdf["value"] = (
-            heatmap_gdf["sighting_count"] + heatmap_gdf["species_richness"]
-        ) / 2
-
-        point = heatmap_gdf.geometry.representative_point()
-        heatmap_gdf["lon"] = point.x
-        heatmap_gdf["lat"] = point.y
-
-        heat_data = []
-        for index, row in heatmap_gdf.iterrows():
-            heat_data.append([row["lat"], row["lon"], row["value"]])
-        return heat_data
-
-    @st.cache_data
-    def get_highrisk_gdf() -> gpd.GeoDataFrame:
-        return scored_gdf[scored_gdf["predicted_risk"] > 0.98]
 
     m = folium.Map(
         location=[-25.0, 133.0],   # geographic center of Australia
@@ -121,12 +122,6 @@ def create_national_map():
     if st.checkbox("Sign Placements", value=False):
         fg = folium.FeatureGroup(name="Sign Placements", show=True)
 
-        # Below zoom 8: fast clusters, no icons
-        fast_cluster = FastMarkerCluster(
-            data=[[lat, lon] for lat, lon, props in placements]
-        ).add_to(fg)
-
-        # Above zoom 8: full markers with icons
         detail_cluster = MarkerCluster(show=True).add_to(fg)
         for lat, lon, props in placements:
             tooltip_lines = ["<b>Proposed sign location</b>"]
@@ -155,7 +150,6 @@ def create_national_map():
     folium.plugins.Fullscreen(position="bottomright").add_to(m)
     folium.plugins.MeasureControl(position="bottomright").add_to(m)
     folium.plugins.MiniMap(position="bottomleft", toggle_display=True).add_to(m)
-    # folium.LayerControl(collapsed=False).add_to(m)
 
     # ── Render ────────────────────────────────────────────────────────────────
     st_folium(m, width="100%", height=600, returned_objects=[])

@@ -505,14 +505,15 @@ def prepare_state_boundaries():
         "data/raw/SA1_2021_AUST_GDA2020.shp", columns=["STE_NAME21", "geometry"]
     )
 
-    # Keep only the eight mapped jurisdictions — matches STATE_CODES and map UI filters.
+    # Keep only the eight mapped jurisdictions — matches STATE_CODES and map UI filters
     state_boundaries = state_boundaries[
         state_boundaries["STE_NAME21"].isin(STATE_CODES.keys())
     ]
     state_boundaries = state_boundaries.rename(columns={"STE_NAME21": "state"})
 
-    # Dissolve SA1 polygons to one multipolygon per state for state-level spatial joins.
+    # Dissolve SA1 polygons to one multipolygon per state for state-level spatial joins
     state_boundaries = state_boundaries.dissolve(by="state").reset_index()
+    state_boundaries["state"] = state_boundaries["state"].map(STATE_CODES)
 
     state_boundaries.to_parquet("data/processed/state_boundaries.parquet", index=False)
     print(
@@ -573,7 +574,6 @@ def build_ndvi_median_composite():
                 dst.write(block_median.astype(np.float32), 1, window=window)
 
                 del stack, block_arrays
-                # Explicit cleanup — block loops over continental rasters can exhaust memory on Windows.
                 gc.collect()
 
     finally:

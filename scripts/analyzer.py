@@ -25,11 +25,11 @@ LONGITUDE_COLUMN = "longitude"
 
 def main():
     # Per-species parquets in backup/ are enriched but not yet spatially joined.
-    p = "backup/"
+    path = "backup/"
 
-    for filename in os.listdir(p):
+    for filename in os.listdir(path):
         if filename.endswith(".parquet"):
-            df = pd.read_parquet(f"{p}{filename}")
+            df = pd.read_parquet(os.path.join(path, filename))
 
             sightings_gdf = prepare_spatial_data(df)
             sightings_gdf = engineer_features(sightings_gdf)
@@ -105,7 +105,7 @@ def prepare_spatial_data(df: pd.DataFrame) -> gpd.GeoDataFrame:
     # OSM can yield ties at identical distance (parallel carriageways) — keep one assignment.
     sightings_joined = sightings_joined[
         ~sightings_joined.index.duplicated(keep="first")
-    ]
+    ].copy()
 
     del sightings_projected_gdf, state_boundaries_projected_gdf, road_networks_projected_gdf
     # Spatial joins materialise large intermediate frames — release before the next species file.
@@ -125,14 +125,13 @@ def engineer_features(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Returns:
         Enriched GeoDataFrame with normalized features.
     """
-    # Abbreviated codes match map UI filters and keep feature cardinality low for ML.
-    gdf["state"] = gdf["state"].map(fetcher.STATE_CODES)
-
+    gdf = gdf.copy()
+    
     # Habitat suitability at the observation point — sampled before segment aggregation.
-    gdf = sample_raster_at_points(gdf, col_name="ndvi")
+    gdf["ndvi"] = sample_raster_at_points(gdf)
 
     # Values above 1.0 are bad pixels or unmasked fill — they would distort habitat scoring.
-    gdf = gdf[gdf["ndvi"] <= 1.0]
+    gdf = gdf[gdf["ndvi"] <= 1.0].copy()
 
     # Round to metres — sub-metre precision is noise once averaged per road segment.
     gdf["distance_to_road"] = round(gdf["distance_to_road"].astype(float), 2)
@@ -140,7 +139,7 @@ def engineer_features(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return gdf
 
 
-def sample_raster_at_points(gdf, col_name):
+def sample_raster_at_points(gdf: gpd.GeoDataFrame) -> np.array:
     """
     Extracts raster values at specific geographic coordinates.
     Handles coordinate transformation if raster CRS differs from input.
@@ -168,8 +167,7 @@ def sample_raster_at_points(gdf, col_name):
         print("🔄 Fetching vegetation data for each coordinate....")
         sampled = list(sample_gen(src, coords, indexes=1))
 
-    gdf[col_name] = np.array(sampled, dtype=float)
-    return gdf
+    return np.array(sampled, dtype=float)
 
 
 def minmax(series, q_hi=0.99):
