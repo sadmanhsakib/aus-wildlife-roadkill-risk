@@ -101,7 +101,7 @@ def render_shap_panel(segment_id: int | None = None) -> None:
 
     # Calculate predicted risk from SHAP values
     shap_row = shap_df.loc[segment_id]
-    exclude_cols = ["road_segment_id", "expected_value"]
+    exclude_cols = ["road_segment_id"]
     risk_score = shap_row.drop(labels=exclude_cols).sum()
 
     # Display segment info and waterfall plot
