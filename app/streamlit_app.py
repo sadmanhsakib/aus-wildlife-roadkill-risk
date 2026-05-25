@@ -1,5 +1,10 @@
-from components.map_view import create_national_map
-from components.shap_panel import render_shap_panel
+from components.map_view import (
+    create_national_map,
+    parse_clicked_segment,
+    render_layer_controls,
+    warmup_map_caches,
+)
+from components.shap_panel import render_shap_panel, warmup_shap_caches
 from streamlit_folium import st_folium
 from pathlib import Path
 import streamlit as st
@@ -12,16 +17,13 @@ def load_css(path: str = "app/assets/style.css") -> str:
 
 
 @st.cache_data
-def load_html_data(path: str = "app/assets/") -> str:
+def load_html_data(path: str = "app/assets/") -> dict[str, str]:
     html_data = {}
     for filename in os.listdir(path):
         if filename.endswith(".html"):
             filepath = os.path.join(path, filename)
-            html_data.update(
-                {
-                    filename.removesuffix(".html"): 
-                        Path(filepath).read_text(encoding="utf-8")
-                }
+            html_data[filename.removesuffix(".html")] = Path(filepath).read_text(
+                encoding="utf-8"
             )
     return html_data
 
@@ -32,6 +34,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+if "selected_segment" not in st.session_state:
+    st.session_state.selected_segment = None
+
+# Warm caches once per browser session (speeds map toggles and SHAP clicks).
+if not st.session_state.get("_caches_warm"):
+    with st.spinner("Loading map data…"):
+        warmup_map_caches()
+        warmup_shap_caches()
+    st.session_state._caches_warm = True
 
 html_data = load_html_data()
 
@@ -54,39 +66,48 @@ st.markdown('<p class="section-label">Risk Map</p>', unsafe_allow_html=True)
 
 map_col, shap_col = st.columns([3, 1], gap="medium")
 
-with map_col:
+
+@st.fragment
+def _map_panel() -> None:
+    layers = render_layer_controls()
+    m, map_key = create_national_map(layers)
     st.markdown('<div class="map-wrapper">', unsafe_allow_html=True)
-    m, placements = create_national_map()
     map_output = st_folium(
-        m, width="100%", height=600, returned_objects=["last_object_clicked_tooltip"]
+        m,
+        width="100%",
+        height=600,
+        key=f"national-map-{map_key}",
+        returned_objects=[
+            "last_object_clicked_popup",
+            "last_object_clicked_tooltip",
+        ],
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-    clicked_tooltip = map_output.get("last_object_clicked_tooltip")
+    segment_id = parse_clicked_segment(map_output)
+    if (
+        segment_id is not None
+        and st.session_state.selected_segment != segment_id
+    ):
+        st.session_state.selected_segment = segment_id
+        st.rerun()
 
-    if clicked_tooltip:
-        try:
-            segment_id = int(
-                clicked_tooltip[
-                    clicked_tooltip.find("Id: ")
-                    + len("Id: ") : clicked_tooltip.find("State")
-                ]
-            )
-            st.session_state.selected_segment = segment_id
-        except (ValueError, TypeError):
-            pass
+
+with map_col:
+    _map_panel()
 
 with shap_col:
     st.markdown(
         """<p class="section-label">Feature Attribution</p>
             Click on any sign to get the feature attribution.
-        """, unsafe_allow_html=True
+        """,
+        unsafe_allow_html=True,
     )
-    if st.session_state.get("selected_segment"):
+    if st.session_state.selected_segment:
         if st.button("✕ Clear", key="clear_shap"):
             st.session_state.selected_segment = None
             st.rerun()
-    render_shap_panel(st.session_state.get("selected_segment"))
+    render_shap_panel(st.session_state.selected_segment)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(html_data["footer"], unsafe_allow_html=True)

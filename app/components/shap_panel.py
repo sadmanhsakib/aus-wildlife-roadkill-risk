@@ -1,43 +1,51 @@
+import io
 import joblib
 import shap
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 import streamlit as st
+
+
+@st.cache_resource
+def load_feature_cols(path: str = "data/model/feature_cols.pkl") -> list[str]:
+    return list(joblib.load(path))
 
 
 @st.cache_data
 def load_shap_values(path: str = "data/model/shap_values.parquet") -> pd.DataFrame:
-    return pd.read_parquet(path)
+    df = pd.read_parquet(path)
+    return df.set_index("road_segment_id", drop=False)
 
 
 @st.cache_data
 def load_feature_values(path: str = "data/model/road_segments_scored.parquet") -> pd.DataFrame:
-    feature_cols = list(joblib.load("data/model/feature_cols.pkl"))
-    return pd.read_parquet(path, columns=["road_segment_id"] + feature_cols)
+    feature_cols = load_feature_cols()
+    df = pd.read_parquet(path, columns=["road_segment_id"] + feature_cols)
+    return df.set_index("road_segment_id", drop=False)
 
 
-def _render_waterfall(segment_id, shap_df: pd.DataFrame, feature_df: pd.DataFrame):
-    # Non-feature columns to exclude from SHAP values
+@st.cache_resource
+def warmup_shap_caches() -> None:
+    load_shap_values()
+    load_feature_values()
+
+
+@st.cache_data
+def _waterfall_image(segment_id: int) -> bytes:
+    shap_df = load_shap_values()
+    feature_df = load_feature_values()
+
     exclude_cols = ["road_segment_id", "expected_value"]
     feature_cols = [c for c in shap_df.columns if c not in exclude_cols]
 
-    # Filter to the single row and squeeze to 1D immediately
-    shap_row = shap_df.loc[shap_df["road_segment_id"] == segment_id, feature_cols].iloc[
-        0
-    ]
-    feature_row = feature_df.loc[feature_df["road_segment_id"] == segment_id].iloc[0]
-
-    # Drop road_segment_id from feature_row — only actual feature values
-    feature_row = feature_row.drop(labels=["road_segment_id"])
-
-    expected_value = shap_df.loc[
-        shap_df["road_segment_id"] == segment_id, "expected_value"
-    ].iloc[0]
+    shap_row = shap_df.loc[segment_id, feature_cols]
+    feature_row = feature_df.loc[segment_id, feature_cols]
+    expected_value = shap_df.loc[segment_id, "expected_value"]
 
     explanation = shap.Explanation(
-        values=shap_row.values,  # 1D array of shape (16,)
+        values=shap_row.values,
         base_values=float(expected_value),
-        data=feature_row.values,  # 1D array of shape (16,)
+        data=feature_row.values,
         feature_names=list(shap_row.index),
     )
 
@@ -45,27 +53,26 @@ def _render_waterfall(segment_id, shap_df: pd.DataFrame, feature_df: pd.DataFram
     shap.plots.waterfall(explanation, show=False)
     fig.patch.set_facecolor("white")
 
-    st.pyplot(fig)
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", dpi=100, bbox_inches="tight")
     plt.close(fig)
+    return buffer.getvalue()
 
 
-def render_shap_panel(segment_id=None):
-    st.subheader("Feature Attribution")
-
+def render_shap_panel(segment_id: int | None = None) -> None:
     if segment_id is None:
-        st.caption("Click a segment on the map to see why it was flagged.")
+        st.caption("Click a sign on the map to see why it was flagged.")
         return
 
+    segment_id = int(segment_id)
     shap_df = load_shap_values()
-    feature_df = load_feature_values()
 
-    shap_row = shap_df.loc[shap_df["road_segment_id"] == segment_id]
-
-    if segment_id not in shap_df["road_segment_id"].values:
+    if segment_id not in shap_df.index:
         st.warning(f"No SHAP data found for segment `{segment_id}`.")
         return
 
-    risk_score = shap_row.drop(columns=["road_segment_id"]).values.sum()
+    shap_row = shap_df.loc[segment_id]
+    risk_score = shap_row.drop(labels=["road_segment_id", "expected_value"]).sum()
 
     st.caption(f"Segment `{segment_id}` — predicted risk **{risk_score:.4f}**")
-    _render_waterfall(segment_id, shap_df, feature_df)
+    st.image(_waterfall_image(segment_id), width="stretch")
