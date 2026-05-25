@@ -5,7 +5,6 @@ import geopandas as gpd
 import streamlit as st
 import branca.colormap as cm
 from folium.plugins import HeatMap, MarkerCluster
-from streamlit_folium import st_folium
 
 
 @st.cache_data

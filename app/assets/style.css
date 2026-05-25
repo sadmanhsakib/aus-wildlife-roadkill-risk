@@ -1,0 +1,146 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* Base */
+html, body, [class*="css"] {
+    font-family: 'JetBrains Mono', monospace;
+    background-color: #0d1117;
+    color: #e6edf3;
+}
+
+/* Hide Streamlit chrome */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container {
+    padding: 2rem 2.5rem 2rem 2.5rem;
+    max-width: 100%;
+}
+
+/* ── Header ── */
+.dash-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    border-bottom: 1px solid #f0883e33;
+    padding-bottom: 1.2rem;
+    margin-bottom: 1.8rem;
+}
+.dash-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: #ffffff;
+    line-height: 1;
+    margin: 0;
+}
+.dash-title span {
+    color: #f0883e;
+}
+.dash-subtitle {
+    font-size: 0.7rem;
+    color: #8b949e;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 0.35rem 0 0 0;
+}
+.dash-badge {
+    font-size: 0.65rem;
+    padding: 4px 10px;
+    border: 1px solid #f0883e55;
+    border-radius: 2px;
+    color: #f0883e;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: #f0883e0d;
+}
+
+/* ── Metric cards ── */
+[data-testid="metric-container"] {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-top: 2px solid #f0883e;
+    border-radius: 4px;
+    padding: 1rem 1.2rem !important;
+    transition: border-color 0.2s, transform 0.2s;
+}
+[data-testid="metric-container"]:hover {
+    border-top-color: #ffa657;
+    transform: translateY(-2px);
+}
+[data-testid="metric-container"] > div:first-child {
+    font-size: 0.65rem !important;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #8b949e !important;
+}
+[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 1.6rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+}
+[data-testid="metric-container"] [data-testid="stMetricDelta"] {
+    font-size: 0.65rem !important;
+    color: #f0883e !important;
+}
+
+/* ── Section labels ── */
+.section-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #8b949e;
+    margin: 1.6rem 0 0.6rem 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #21262d;
+}
+
+/* ── Map container ── */
+.map-wrapper {
+    border: 1px solid #21262d;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 0 40px #f0883e0a;
+}
+
+/* ── SHAP panel ── */
+.stSubheader {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.05em;
+    color: #e6edf3 !important;
+    text-transform: uppercase;
+}
+[data-testid="stCaptionContainer"] {
+    font-size: 0.68rem !important;
+    color: #8b949e !important;
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* ── Checkboxes (layer toggles) ── */
+[data-testid="stCheckbox"] label {
+    font-size: 0.72rem !important;
+    letter-spacing: 0.06em;
+    color: #c9d1d9 !important;
+}
+[data-testid="stCheckbox"] [data-testid="stWidgetLabel"] {
+    color: #c9d1d9 !important;
+}
+
+/* ── Divider ── */
+hr {
+    border-color: #21262d !important;
+    margin: 1.2rem 0 !important;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
