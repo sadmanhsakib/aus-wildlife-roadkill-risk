@@ -84,7 +84,7 @@ def load_state_boundaries(
 def add_state_layer(m: folium.Map) -> gpd.GeoDataFrame:
     state_boundaries_gdf = load_state_boundaries()
     state_stats = load_state_stats()
-    
+
     state_boundaries_gdf["total_segments"] = state_boundaries_gdf["state"].map(
         lambda s: state_stats.get(s, {}).get("total_segments", "N/A")
     )
@@ -159,7 +159,7 @@ def create_national_map() -> tuple:
         tiles="CartoDB positron",  # clean light basemap; no labels cluttering risk data
         prefer_canvas=True         # Canvas renderer is faster for many polygons
     )
-    
+
     # ── Layer 0: State Boundaries ─────────────────────────────────────────────
     if st.checkbox("State Boundaries", value=True):
         add_state_layer(m)
@@ -213,7 +213,7 @@ def create_national_map() -> tuple:
         colormap.add_to(m)
 
     # ── Layer 3: Sign Placements ──────────────────────────────────────────────
-    if st.checkbox("Sign Placements", value=False):
+    if st.checkbox("Sign Placements", value=True):
         fg = folium.FeatureGroup(name="Sign Placements", show=True)
 
         detail_cluster = MarkerCluster(show=True).add_to(fg)
@@ -225,8 +225,13 @@ def create_national_map() -> tuple:
 
             folium.Marker(
                 location=[lat, lon],
-                icon=folium.Icon(icon="warning-sign", prefix="glyphicon", color="red", icon_color="white"),
-                tooltip=folium.Tooltip("<br>".join(tooltip_lines))
+                icon=folium.Icon(
+                    icon="exclamation-triangle",
+                    prefix="fa",
+                    color="red",
+                    icon_color="white",
+                ),
+                tooltip=folium.Tooltip("<br>".join(tooltip_lines)),
             ).add_to(detail_cluster)
 
         fg.add_to(m)

@@ -58,24 +58,34 @@ with map_col:
     st.markdown('<div class="map-wrapper">', unsafe_allow_html=True)
     m, placements = create_national_map()
     map_output = st_folium(
-        m, width="100%", height=580, returned_objects=["last_clicked"]
+        m, width="100%", height=600, returned_objects=["last_object_clicked_tooltip"]
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-    if map_output["last_clicked"]:
-        lat = map_output["last_clicked"]["lat"]
-        lon = map_output["last_clicked"]["lng"]
-        distances = [
-            ((lat - p_lat) ** 2 + (lon - p_lon) ** 2, int(props["road_segment_id"]))
-            for p_lat, p_lon, props in placements
-        ]
-        _, segment_id = min(distances)
-        st.session_state.selected_segment = segment_id
+    clicked_tooltip = map_output.get("last_object_clicked_tooltip")
+
+    if clicked_tooltip:
+        try:
+            segment_id = int(
+                clicked_tooltip[
+                    clicked_tooltip.find("Id: ")
+                    + len("Id: ") : clicked_tooltip.find("State")
+                ]
+            )
+            st.session_state.selected_segment = segment_id
+        except (ValueError, TypeError):
+            pass
 
 with shap_col:
     st.markdown(
-        '<p class="section-label">Feature Attribution</p>', unsafe_allow_html=True
+        """<p class="section-label">Feature Attribution</p>
+            Click on any sign to get the feature attribution.
+        """, unsafe_allow_html=True
     )
+    if st.session_state.get("selected_segment"):
+        if st.button("✕ Clear", key="clear_shap"):
+            st.session_state.selected_segment = None
+            st.rerun()
     render_shap_panel(st.session_state.get("selected_segment"))
 
 # ── Footer ────────────────────────────────────────────────────────────────────
