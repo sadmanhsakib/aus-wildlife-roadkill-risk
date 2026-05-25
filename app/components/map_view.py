@@ -151,7 +151,7 @@ def add_state_layer(m: folium.Map) -> gpd.GeoDataFrame:
     ).add_to(m)
 
 
-def create_national_map():
+def create_national_map() -> tuple:
     placements = load_sign_placement_data()
 
     m = folium.Map(
@@ -165,8 +165,8 @@ def create_national_map():
     if st.checkbox("State Boundaries", value=True):
         add_state_layer(m)
 
-    # ── Layer 1: Risk HeatMap ─────────────────────────────────────────────────
-    if st.checkbox("Risk HeatMap", value=False):
+    # ── Layer 1: Occurrence HeatMap ─────────────────────────────────────────────────
+    if st.checkbox("Occurrence HeatMap", value=False):
         HeatMap(
             get_heatmap_data(),
             min_opacity=0.4,
@@ -176,7 +176,7 @@ def create_national_map():
         ).add_to(m)
 
     # ── Layer 2: High-Risk Segments ───────────────────────────────────────────
-    if st.checkbox("High-Risk Segments", value=False):
+    if st.checkbox("High-Risk Road Segments", value=False):
         colormap = cm.LinearColormap(
             colors=["#ffffb2", "#fecc5c", "#fd8d3c", "#e31a1c"],
             vmin=0.98,
@@ -246,5 +246,4 @@ def create_national_map():
     folium.plugins.MeasureControl(position="bottomright").add_to(m)
     folium.plugins.MiniMap(position="bottomleft", toggle_display=True).add_to(m)
 
-    # ── Render ────────────────────────────────────────────────────────────────
-    st_folium(m, width="100%", height=600, returned_objects=[])
+    return m, placements

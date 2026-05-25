@@ -514,7 +514,8 @@ def compute_shap(
 
     shap_df = pd.DataFrame(shap_values, columns=feature_cols)
     # Insert road_segment_id at the first position for reference
-    shap_df.insert(0, "road_segment_id", gdf["road_segment_id"].values)
+    shap_df.insert(0, "road_segment_id", gdf["road_segment_id"].values.astype(int))
+    shap_df["expected_value"] = explainer.expected_value
     
     # Save SHAP values for downstream analysis or visualisation
     shap_df.to_parquet("data/model/shap_values.parquet", index=False)
@@ -538,6 +539,7 @@ def score_all_segments(
         GeoDataFrame updated with a 'predicted_risk' column.
     """
     gdf = gdf.copy()
+    gdf["road_segment_id"] = gdf["road_segment_id"].astype(int)
     
     # Generate risk scores for the entire dataset
     gdf["predicted_risk"] = model.predict(X)
