@@ -10,40 +10,41 @@ import branca.colormap as cm
 from folium.plugins import HeatMap
 
 
-# Max heatmap points sent to the browser (99k points is slow to render in Leaflet).
-HEATMAP_MAX_POINTS = 20_000
-
-
-@st.cache_data
-def get_sign_placements_geojson(
-    path: str = "data/model/sign_placements.geojson",
-) -> dict:
-    with open(path, "r", encoding="utf-8") as file:
-        return json.load(file)
+# Performance tuning constants
+HEATMAP_MAX_POINTS = 15_000  # Reduced for faster rendering
+HIGHRISK_THRESHOLD = 0.98
 
 
 @st.cache_data
 def load_sign_placements() -> list[tuple[float, float, int, dict]]:
-    """(lat, lon, segment_id, properties) for each proposed sign."""
+    """Load sign placement data efficiently from GeoJSON.
+    
+    Returns:
+        List of (lat, lon, segment_id, properties) tuples for each sign.
+    """
+    with open("data/model/sign_placements.geojson", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
     placements = []
-    for feature in get_sign_placements_geojson()["features"]:
+    for feature in data["features"]:
         lon, lat = feature["geometry"]["coordinates"]
         props = feature["properties"]
         placements.append((lat, lon, int(props["road_segment_id"]), props))
+    
     return placements
 
 
 def _add_sign_placements(m: folium.Map, placements: list[tuple]) -> None:
-    """Circle markers with a plain tooltip streamlit-folium can return on click."""
+    """Add sign markers to the map with tooltips."""
     fg = folium.FeatureGroup(name="Sign Placements", show=True)
+    
     for lat, lon, segment_id, props in placements:
-        tooltip_html = "<br>".join(
-            [
-                f"<b>segment_id:{segment_id}</b>",
-                f"State: {props.get('state', '')}",
-                f"Risk: {props.get('predicted_risk', 0):.4f}",
-            ]
+        tooltip_html = (
+            f"<b>segment_id:{segment_id}</b><br>"
+            f"State: {props.get('state', 'N/A')}<br>"
+            f"Risk: {props.get('predicted_risk', 0):.4f}"
         )
+        
         folium.CircleMarker(
             location=[lat, lon],
             radius=7,
@@ -54,90 +55,128 @@ def _add_sign_placements(m: folium.Map, placements: list[tuple]) -> None:
             weight=1,
             tooltip=folium.Tooltip(tooltip_html, sticky=True),
         ).add_to(fg)
+    
     fg.add_to(m)
 
 
 @st.cache_data
-def load_stored_gdf_data() -> gpd.GeoDataFrame:
-    scored_gdf = gpd.read_parquet("data/model/road_segments_scored.parquet")
-    if scored_gdf.crs is None or scored_gdf.crs.to_epsg() != 4326:
-        scored_gdf = scored_gdf.to_crs(epsg=4326)
-    return scored_gdf
+def load_road_segments_lite() -> pd.DataFrame:
+    """Load only essential columns from road segments for better performance.
+    
+    Returns:
+        DataFrame with geometry, risk scores, and basic attributes.
+    """
+    columns = [
+        "road_segment_id", "predicted_risk", "state",
+        "sighting_count", "species_richness", "geometry"
+    ]
+    df = gpd.read_parquet("data/model/road_segments_scored.parquet", columns=columns)
+    
+    # Ensure correct CRS
+    if df.crs is None or df.crs.to_epsg() != 4326:
+        df = df.to_crs(epsg=4326)
+    
+    return df
 
 
 @st.cache_data
 def get_heatmap_data(max_points: int = HEATMAP_MAX_POINTS) -> list[list[float]]:
-    heatmap_gdf = load_stored_gdf_data()
-    values = (
-        heatmap_gdf["sighting_count"] + heatmap_gdf["species_richness"]
-    ).to_numpy() / 2
-    points = heatmap_gdf.geometry.representative_point()
-    coords = pd.DataFrame({"lat": points.y, "lon": points.x, "value": values})
-
+    """Generate heatmap data from wildlife sightings and species richness.
+    
+    Args:
+        max_points: Maximum number of points to include (for performance).
+        
+    Returns:
+        List of [lat, lon, intensity] values for the heatmap.
+    """
+    df = load_road_segments_lite()
+    
+    # Calculate intensity from sightings and species richness
+    df["intensity"] = (df["sighting_count"] + df["species_richness"]) / 2
+    
+    # Get representative points for line geometries
+    points = df.geometry.representative_point()
+    
+    # Create coordinate dataframe
+    coords = pd.DataFrame({
+        "lat": points.y,
+        "lon": points.x,
+        "intensity": df["intensity"]
+    })
+    
+    # Sample if too many points
     if len(coords) > max_points:
         coords = coords.sample(n=max_points, random_state=42)
-
-    return coords[["lat", "lon", "value"]].values.tolist()
+    
+    return coords[["lat", "lon", "intensity"]].values.tolist()
 
 
 @st.cache_data
 def get_highrisk_geojson() -> str:
-    scored_gdf = load_stored_gdf_data()
-    highrisk = scored_gdf[scored_gdf["predicted_risk"] > 0.98]
+    """Get GeoJSON for high-risk road segments (risk > 0.98)."""
+    df = load_road_segments_lite()
+    highrisk = df[df["predicted_risk"] > HIGHRISK_THRESHOLD]
     return highrisk.to_json()
 
 
 @st.cache_data
-def load_state_stats() -> dict:
-    gdf = load_stored_gdf_data()
-    df = gdf[["state", "predicted_risk"]]
+def calculate_state_stats() -> dict:
+    """Calculate statistics for each state.
+    
+    Returns:
+        Dictionary mapping state names to their statistics.
+    """
+    df = load_road_segments_lite()
+    
     stats = {}
     for state, group in df.groupby("state"):
         stats[state] = {
             "total_segments": len(group),
-            "critical_segments": int((group["predicted_risk"] > 0.98).sum()),
+            "critical_segments": int((group["predicted_risk"] > HIGHRISK_THRESHOLD).sum()),
             "mean_risk": round(group["predicted_risk"].mean(), 4),
             "max_risk": round(group["predicted_risk"].max(), 4),
         }
+    
     return stats
 
 
-@st.cache_resource
-def load_state_boundaries(
-    path: str = "data/processed/state_boundaries_simplified.parquet",
-) -> gpd.GeoDataFrame:
-    return gpd.read_parquet(path)
+@st.cache_data
+def load_state_boundaries() -> gpd.GeoDataFrame:
+    """Load simplified state boundaries for faster rendering."""
+    return gpd.read_parquet("data/processed/state_boundaries_simplified.parquet")
 
 
 @st.cache_data
 def get_state_boundaries_geojson() -> str:
-    state_boundaries_gdf = load_state_boundaries().copy()
-    state_stats = load_state_stats()
-    state_boundaries_gdf["total_segments"] = state_boundaries_gdf["state"].map(
-        lambda s: state_stats.get(s, {}).get("total_segments", "N/A")
+    """Get state boundaries with statistics as GeoJSON."""
+    boundaries = load_state_boundaries()
+    stats = calculate_state_stats()
+    
+    # Add statistics to boundaries
+    boundaries["total_segments"] = boundaries["state"].map(
+        lambda s: stats.get(s, {}).get("total_segments", "N/A")
     )
-    state_boundaries_gdf["critical_segments"] = state_boundaries_gdf["state"].map(
-        lambda s: state_stats.get(s, {}).get("critical_segments", "N/A")
+    boundaries["critical_segments"] = boundaries["state"].map(
+        lambda s: stats.get(s, {}).get("critical_segments", "N/A")
     )
-    state_boundaries_gdf["mean_risk"] = state_boundaries_gdf["state"].map(
-        lambda s: state_stats.get(s, {}).get("mean_risk", "N/A")
+    boundaries["mean_risk"] = boundaries["state"].map(
+        lambda s: stats.get(s, {}).get("mean_risk", "N/A")
     )
-    state_boundaries_gdf["max_risk"] = state_boundaries_gdf["state"].map(
-        lambda s: state_stats.get(s, {}).get("max_risk", "N/A")
+    boundaries["max_risk"] = boundaries["state"].map(
+        lambda s: stats.get(s, {}).get("max_risk", "N/A")
     )
-    return state_boundaries_gdf.to_json()
+    
+    return boundaries.to_json()
 
 
-def _map_cache_key(
-    show_state: bool,
-    show_heatmap: bool,
-    show_highrisk: bool,
-    show_signs: bool,
-) -> str:
+def _create_map_key(show_state: bool, show_heatmap: bool, 
+                    show_highrisk: bool, show_signs: bool) -> str:
+    """Generate a unique key for map caching based on visible layers."""
     return f"{show_state}-{show_heatmap}-{show_highrisk}-{show_signs}"
 
 
 def _state_style(_feature) -> dict:
+    """Style function for state boundaries."""
     return {
         "fillColor": "#1a1a2e",
         "color": "#4a90d9",
@@ -148,6 +187,7 @@ def _state_style(_feature) -> dict:
 
 
 def _state_highlight(_feature) -> dict:
+    """Highlight style for state boundaries on hover."""
     return {
         "fillColor": "#4a90d9",
         "fillOpacity": 0.2,
@@ -156,16 +196,25 @@ def _state_highlight(_feature) -> dict:
 
 
 def _highrisk_highlight(_feature) -> dict:
+    """Highlight style for high-risk segments on hover."""
     return {"fillOpacity": 0.9, "weight": 4}
 
 
 @st.cache_resource(show_spinner="Building map…")
-def _build_national_map(
-    show_state: bool,
-    show_heatmap: bool,
-    show_highrisk: bool,
-    show_signs: bool,
-) -> folium.Map:
+def _build_national_map(show_state: bool, show_heatmap: bool,
+                        show_highrisk: bool, show_signs: bool) -> folium.Map:
+    """Build the Folium map with requested layers.
+    
+    Args:
+        show_state: Show state boundaries layer
+        show_heatmap: Show wildlife occurrence heatmap
+        show_highrisk: Show high-risk road segments
+        show_signs: Show proposed sign placements
+        
+    Returns:
+        Configured Folium map object
+    """
+    # Create base map
     m = folium.Map(
         location=[-25.0, 133.0],
         zoom_start=4,
@@ -173,6 +222,7 @@ def _build_national_map(
         prefer_canvas=True,
     )
 
+    # Add state boundaries layer
     if show_state:
         folium.GeoJson(
             get_state_boundaries_geojson(),
@@ -180,35 +230,21 @@ def _build_national_map(
             style_function=_state_style,
             highlight_function=_state_highlight,
             tooltip=folium.GeoJsonTooltip(
-                fields=[
-                    "state",
-                    "total_segments",
-                    "critical_segments",
-                    "mean_risk",
-                    "max_risk",
-                ],
-                aliases=[
-                    "State",
-                    "Road Segments Scored",
-                    "Critical Segments (≥0.98)",
-                    "Mean Risk Score",
-                    "Peak Risk Score",
-                ],
+                fields=["state", "total_segments", "critical_segments", "mean_risk", "max_risk"],
+                aliases=["State", "Road Segments Scored", "Critical Segments (≥0.98)", 
+                        "Mean Risk Score", "Peak Risk Score"],
                 localize=True,
                 sticky=True,
                 style=(
-                    "background-color: #1a1a2e;"
-                    "color: white;"
-                    "font-family: monospace;"
-                    "font-size: 12px;"
-                    "padding: 8px;"
-                    "border-radius: 4px;"
-                    "border: 1px solid #4a90d9;"
+                    "background-color: #1a1a2e; color: white; "
+                    "font-family: monospace; font-size: 12px; padding: 8px; "
+                    "border-radius: 4px; border: 1px solid #4a90d9;"
                 ),
             ),
             zoom_on_click=True,
         ).add_to(m)
 
+    # Add heatmap layer
     if show_heatmap:
         HeatMap(
             get_heatmap_data(),
@@ -218,16 +254,17 @@ def _build_national_map(
             max_zoom=13,
         ).add_to(m)
 
+    # Add high-risk segments layer
     if show_highrisk:
         colormap = cm.LinearColormap(
             colors=["#ffffb2", "#fecc5c", "#fd8d3c", "#e31a1c"],
-            vmin=0.98,
+            vmin=HIGHRISK_THRESHOLD,
             vmax=1.0,
             caption="Predicted Risk Score",
         )
 
         def style_fn(feature):
-            risk = feature["properties"].get("predicted_risk", 0.98)
+            risk = feature["properties"].get("predicted_risk", HIGHRISK_THRESHOLD)
             return {
                 "fillColor": colormap(risk),
                 "color": colormap(risk),
@@ -249,9 +286,11 @@ def _build_national_map(
         ).add_to(m)
         colormap.add_to(m)
 
+    # Add sign placements layer
     if show_signs:
         _add_sign_placements(m, load_sign_placements())
 
+    # Add map title
     title_html = """
     <div style="position:fixed; top:12px; left:50%; transform:translateX(-50%);
         background:white; padding:8px 18px; border-radius:8px;
@@ -261,39 +300,54 @@ def _build_national_map(
     </div>
     """
     m.get_root().html.add_child(folium.Element(title_html))
+    
+    # Add fullscreen control
     folium.plugins.Fullscreen(position="bottomright").add_to(m)
 
     return m
 
 
 def render_layer_controls() -> dict[str, bool]:
-    """Layer toggles live outside the cached map builder so only flags are inputs."""
+    """Render checkboxes for map layer toggles.
+    
+    Returns:
+        Dictionary of layer visibility flags
+    """
     return {
         "show_state": st.checkbox("State Boundaries", value=True, key="layer_state"),
-        "show_heatmap": st.checkbox(
-            "Occurrence HeatMap", value=False, key="layer_heatmap"
-        ),
-        "show_highrisk": st.checkbox(
-            "High-Risk Road Segments", value=False, key="layer_highrisk"
-        ),
+        "show_heatmap": st.checkbox("Occurrence HeatMap", value=False, key="layer_heatmap"),
+        "show_highrisk": st.checkbox("High-Risk Road Segments", value=False, key="layer_highrisk"),
         "show_signs": st.checkbox("Sign Placements", value=True, key="layer_signs"),
     }
 
 
 def create_national_map(layers: dict[str, bool]) -> tuple[folium.Map, str]:
+    """Create a Folium map with the specified layers.
+    
+    Args:
+        layers: Dictionary of layer visibility flags
+        
+    Returns:
+        Tuple of (map object, cache key for the current layer configuration)
     """
-    Return a fresh Folium map for st_folium plus a stable key for layer state.
-    Deep-copies the cached map so st_folium cannot mutate the cached instance.
-    """
-    key = _map_cache_key(**layers)
-    return copy.deepcopy(_build_national_map(**layers)), key
+    cache_key = _create_map_key(**layers)
+    # Deep copy prevents st_folium from mutating the cached map
+    return copy.deepcopy(_build_national_map(**layers)), cache_key
 
 
 def _extract_segment_id(text: str) -> int | None:
-    """Parse road_segment_id from Folium popup/tooltip HTML or plain text."""
+    """Extract road segment ID from Folium tooltip/popup HTML.
+    
+    Args:
+        text: HTML or plain text from map interaction
+        
+    Returns:
+        Segment ID if found, None otherwise
+    """
     if not text:
         return None
 
+    # Try various patterns to extract segment ID
     patterns = [
         r"segment_id:\s*(\d+)",
         r"segment[_\s]*id[:\s]*</[^>]+>\s*<td[^>]*>\s*(\d+)",
@@ -302,12 +356,13 @@ def _extract_segment_id(text: str) -> int | None:
         r"Id:\s*(\d+)",
         r"Road Segment Id:\s*(\d+)",
     ]
+    
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             return int(match.group(1))
 
-    # Last resort: first long integer in the payload
+    # Fallback: find any long integer (likely a segment ID)
     match = re.search(r"\b(\d{5,})\b", text)
     if match:
         return int(match.group(1))
@@ -316,26 +371,21 @@ def _extract_segment_id(text: str) -> int | None:
 
 
 def parse_clicked_segment(map_output: dict | None) -> int | None:
-    """
-    Read segment id from st_folium click data.
-
-    streamlit-folium does not return GeoJSON properties in last_object_clicked
-    (only lat/lng). Use popup or tooltip text instead.
+    """Parse segment ID from st_folium click event.
+    
+    Args:
+        map_output: Output dictionary from st_folium
+        
+    Returns:
+        Segment ID if a sign was clicked, None otherwise
     """
     if not map_output:
         return None
 
+    # Check both popup and tooltip for segment ID
     for key in ("last_object_clicked_popup", "last_object_clicked_tooltip"):
         segment_id = _extract_segment_id(map_output.get(key) or "")
-        if segment_id is not None:
+        if segment_id:
             return segment_id
 
     return None
-
-
-@st.cache_resource
-def warmup_map_caches() -> None:
-    """Pre-build default map layers and data so first interaction is faster."""
-    _build_national_map(True, False, False, True)
-    get_state_boundaries_geojson()
-    load_sign_placements()

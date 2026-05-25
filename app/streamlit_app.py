@@ -2,30 +2,26 @@ from components.map_view import (
     create_national_map,
     parse_clicked_segment,
     render_layer_controls,
-    warmup_map_caches,
 )
-from components.shap_panel import render_shap_panel, warmup_shap_caches
+from components.shap_panel import render_shap_panel
 from streamlit_folium import st_folium
 from pathlib import Path
 import streamlit as st
-import os
 
 @st.cache_data
 def load_css(path: str = "app/assets/style.css") -> str:
-    css = Path(path).read_text(encoding="utf-8")
-    return f"<style>{css}</style>"
+    """Load and cache CSS styles."""
+    return f"<style>{Path(path).read_text(encoding='utf-8')}</style>"
 
 
 @st.cache_data
-def load_html_data(path: str = "app/assets/") -> dict[str, str]:
-    html_data = {}
-    for filename in os.listdir(path):
-        if filename.endswith(".html"):
-            filepath = os.path.join(path, filename)
-            html_data[filename.removesuffix(".html")] = Path(filepath).read_text(
-                encoding="utf-8"
-            )
-    return html_data
+def load_html_assets() -> dict[str, str]:
+    """Load header and footer HTML files."""
+    assets_path = Path("app/assets")
+    return {
+        "header": (assets_path / "header.html").read_text(encoding="utf-8"),
+        "footer": (assets_path / "footer.html").read_text(encoding="utf-8"),
+    }
 
 
 st.set_page_config(
@@ -35,17 +31,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# Initialize session state
 if "selected_segment" not in st.session_state:
     st.session_state.selected_segment = None
 
-# Warm caches once per browser session (speeds map toggles and SHAP clicks).
-if not st.session_state.get("_caches_warm"):
-    with st.spinner("Loading map data…"):
-        warmup_map_caches()
-        warmup_shap_caches()
-    st.session_state._caches_warm = True
-
-html_data = load_html_data()
+html_data = load_html_assets()
 
 # ── Global styles ─────────────────────────────────────────────────────────────
 st.markdown(load_css(), unsafe_allow_html=True)
@@ -69,6 +59,7 @@ map_col, shap_col = st.columns([3, 1], gap="medium")
 
 @st.fragment
 def _map_panel() -> None:
+    """Render the interactive map with layer controls."""
     layers = render_layer_controls()
     m, map_key = create_national_map(layers)
     st.markdown('<div class="map-wrapper">', unsafe_allow_html=True)
@@ -77,18 +68,13 @@ def _map_panel() -> None:
         width="100%",
         height=600,
         key=f"national-map-{map_key}",
-        returned_objects=[
-            "last_object_clicked_popup",
-            "last_object_clicked_tooltip",
-        ],
+        returned_objects=["last_object_clicked_popup", "last_object_clicked_tooltip"],
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # Handle segment selection from map clicks
     segment_id = parse_clicked_segment(map_output)
-    if (
-        segment_id is not None
-        and st.session_state.selected_segment != segment_id
-    ):
+    if segment_id and st.session_state.selected_segment != segment_id:
         st.session_state.selected_segment = segment_id
         st.rerun()
 
