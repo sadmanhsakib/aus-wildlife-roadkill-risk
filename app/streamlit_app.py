@@ -38,37 +38,18 @@ if "selected_segment" not in st.session_state:
 html_data = load_html_assets()
 
 # ── Global styles ─────────────────────────────────────────────────────────────
-st.markdown(load_css(), unsafe_allow_html=True)
-
-# Inject font override into <head> — st.html writes to the iframe head,
-# bypassing Streamlit's body-level component styles that would otherwise win.
-st.html("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap');
-
-[data-testid="stMetricValue"],
-[data-testid="stMetricValue"] > div,
-[data-testid="stMetricValue"] div,
-[data-testid="stMetricValue"] span,
-[data-testid="stMetricValue"] p {
-    font-family: 'JetBrains Mono', monospace !important;
-    font-weight: 700 !important;
-}
-</style>
-""")
+st.html(load_css())
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown(html_data["header"], unsafe_allow_html=True)
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
-st.markdown('<div class="fade-in">', unsafe_allow_html=True)
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Road Segments", "99,739", help="Total road segments analyzed across Australia")
 col2.metric("Wildlife Sightings", "413,000+", help="Verified wildlife occurrence records")
 col3.metric("Critical Segments", "1,189", "Risk > 0.98", help="High-priority segments requiring intervention")
 col4.metric("Species Covered", "11", help="Native Australian species included in analysis")
 col5.metric("States Covered", "8", help="All Australian states and territories")
-st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Map + SHAP layout ─────────────────────────────────────────────────────────
 st.markdown('<p class="section-label">Interactive Risk Map</p>', unsafe_allow_html=True)

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500;700&display=swap");
 
 /* ─────────────────────────────────────────────────────────────────────────
    Base & Typography
@@ -95,7 +95,6 @@ p, span, label, h1, h2, h3, h4, h5, h6 {
     color: var(--color-text-primary) !important;
 }
 
-/* Divs get color but NOT font-family, so component font overrides still work */
 div {
     color: var(--color-text-primary) !important;
 }
@@ -194,7 +193,7 @@ div {
    Metric Cards
    ───────────────────────────────────────────────────────────────────────── */
 
-[data-testid="metric-container"] {
+[data-testid="stMetric"] {
     background: var(--color-bg-secondary);
     border: 1px solid var(--color-border-light);
     border-radius: var(--radius-md);
@@ -203,13 +202,14 @@ div {
     box-shadow: 0 1px 3px var(--color-shadow);
 }
 
-[data-testid="metric-container"]:hover {
+[data-testid="stMetric"]:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px var(--color-shadow-hover);
     border-color: var(--color-accent);
 }
 
-[data-testid="metric-container"] > div:first-child {
+[data-testid="stMetricLabel"],
+[data-testid="stMetricLabel"] p {
     font-size: 0.75rem !important;
     font-weight: 500 !important;
     letter-spacing: 0.02em;
@@ -218,25 +218,22 @@ div {
     margin-bottom: var(--space-sm);
 }
 
-/* JetBrains Mono for metric values — long chain to beat Streamlit's scoped styles */
-[data-testid="stMetric"] [data-testid="stMetricValue"],
-[data-testid="stMetric"] [data-testid="stMetricValue"] > div,
-[data-testid="stMetric"] [data-testid="stMetricValue"] div,
-[data-testid="stMetric"] [data-testid="stMetricValue"] span,
-[data-testid="metric-container"] [data-testid="stMetricValue"],
-[data-testid="metric-container"] [data-testid="stMetricValue"] > div,
-[data-testid="metric-container"] [data-testid="stMetricValue"] div,
-[data-testid="metric-container"] [data-testid="stMetricValue"] span {
-    font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace !important;
+/* Monospace font for metric values */
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] > div,
+[data-testid="stMetricValue"] div,
+[data-testid="stMetricValue"] span,
+[data-testid="stMetricValue"] p {
+    font-family: 'Fira mono' !important;
     font-size: 2rem !important;
-    font-weight: 700 !important;
+    font-weight: 500 !important;
     letter-spacing: -0.02em !important;
     color: var(--color-text-primary) !important;
     line-height: 1.2 !important;
 }
 
-[data-testid="metric-container"] [data-testid="stMetricDelta"],
-[data-testid="metric-container"] [data-testid="stMetricDelta"] * {
+[data-testid="stMetric"] [data-testid="stMetricDelta"],
+[data-testid="stMetric"] [data-testid="stMetricDelta"] * {
     font-size: 0.8rem !important;
     font-weight: 500 !important;
     margin-top: var(--space-xs);
@@ -257,10 +254,19 @@ div {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Map Container
+   Metrics Row — fade-in animation
    ───────────────────────────────────────────────────────────────────────── */
 
-/* Target st.container(border=True) used for map and layer controls */
+[data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) {
+    animation: fadeIn 0.5s var(--transition-base);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Bordered Panels (layer controls, map iframe, SHAP panel)
+   Only target stVerticalBlock elements that carry Streamlit's border wrapper
+   ───────────────────────────────────────────────────────────────────────── */
+
+[data-testid="stVerticalBlock"]:has(> [data-testid="stVerticalBlockBorderWrapper"]),
 [data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: var(--radius-lg) !important;
     border-color: var(--color-border-light) !important;
@@ -270,6 +276,7 @@ div {
     overflow: hidden;
 }
 
+[data-testid="stVerticalBlock"]:has(> [data-testid="stVerticalBlockBorderWrapper"]):hover,
 [data-testid="stVerticalBlockBorderWrapper"]:hover {
     box-shadow: 0 8px 32px var(--color-shadow-hover);
 }
@@ -474,7 +481,7 @@ div {
         font-size: 0.875rem;
     }
     
-    [data-testid="metric-container"] [data-testid="stMetricValue"] {
+    [data-testid="stMetricValue"] {
         font-size: 1.5rem !important;
     }
 }
