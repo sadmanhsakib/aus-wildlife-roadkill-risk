@@ -88,7 +88,24 @@ def render_shap_panel(segment_id: int | None = None) -> None:
         segment_id: Road segment ID to show attribution for, or None
     """
     if segment_id is None:
-        st.caption("Click a sign on the map to see why it was flagged.")
+        st.markdown(
+            """
+            <div style="text-align: center; padding: 2rem 1rem; color: var(--color-text-tertiary);">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" 
+                     stroke-width="1.5" style="margin-bottom: 1rem; opacity: 0.4;">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                    <circle cx="12" cy="10" r="3"/>
+                </svg>
+                <p style="font-size: 0.95rem; margin: 0; font-weight: 500; color: var(--color-text-secondary);">
+                    No segment selected
+                </p>
+                <p style="font-size: 0.85rem; margin: 0.5rem 0 0 0; line-height: 1.5;">
+                    Click on a red sign marker on the map to see detailed SHAP analysis
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         return
 
     segment_id = int(segment_id)
@@ -96,7 +113,7 @@ def render_shap_panel(segment_id: int | None = None) -> None:
 
     # Check if segment exists in SHAP data
     if segment_id not in shap_df.index:
-        st.warning(f"No SHAP data found for segment `{segment_id}`.")
+        st.warning(f"⚠️ No SHAP data available for segment `{segment_id}`")
         return
 
     # Calculate predicted risk from SHAP values
@@ -104,6 +121,36 @@ def render_shap_panel(segment_id: int | None = None) -> None:
     exclude_cols = ["road_segment_id"]
     risk_score = shap_row.drop(labels=exclude_cols).sum()
 
-    # Display segment info and waterfall plot
-    st.caption(f"Segment `{segment_id}` — predicted risk **{risk_score:.4f}**")
+    # Display segment info
+    st.markdown(
+        f"""
+        <div style="background: var(--color-bg-tertiary); 
+                    padding: 1rem; 
+                    border-radius: var(--radius-sm); 
+                    margin-bottom: 1rem;
+                    border-left: 3px solid var(--color-accent);">
+            <div style="font-size: 0.75rem; 
+                        color: var(--color-text-tertiary); 
+                        text-transform: uppercase; 
+                        letter-spacing: 0.05em; 
+                        margin-bottom: 0.25rem;">
+                Segment Analysis
+            </div>
+            <div style="font-size: 1.25rem; 
+                        font-weight: 600; 
+                        color: var(--color-text-primary);">
+                ID: {segment_id}
+            </div>
+            <div style="font-size: 0.9rem; 
+                        color: var(--color-text-secondary); 
+                        margin-top: 0.5rem;">
+                Predicted Risk: <strong style="color: var(--color-danger);">{risk_score:.4f}</strong>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Display waterfall plot
     st.image(generate_waterfall_plot(segment_id), use_container_width=True)
+

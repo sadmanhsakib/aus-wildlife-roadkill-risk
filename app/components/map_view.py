@@ -39,20 +39,28 @@ def _add_sign_placements(m: folium.Map, placements: list[tuple]) -> None:
     fg = folium.FeatureGroup(name="Sign Placements", show=True)
     
     for lat, lon, segment_id, props in placements:
-        tooltip_html = (
-            f"<b>segment_id:{segment_id}</b><br>"
-            f"State: {props.get('state', 'N/A')}<br>"
-            f"Risk: {props.get('predicted_risk', 0):.4f}"
-        )
+        tooltip_html = f"""
+        <div style="font-family: 'Inter', -apple-system, sans-serif; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 6px; color: #1d1d1f;">
+                Segment ID: {segment_id}
+            </div>
+            <div style="color: #6e6e73; margin-bottom: 4px;">
+                State: {props.get('state', 'N/A')}
+            </div>
+            <div style="color: #ff3b30; font-weight: 500;">
+                Risk Score: {props.get('predicted_risk', 0):.4f}
+            </div>
+        </div>
+        """
         
         folium.CircleMarker(
             location=[lat, lon],
-            radius=7,
-            color="#c0392b",
+            radius=8,
+            color="#ff3b30",
             fill=True,
-            fill_color="#e74c3c",
-            fill_opacity=0.9,
-            weight=1,
+            fill_color="#ff3b30",
+            fill_opacity=0.8,
+            weight=2,
             tooltip=folium.Tooltip(tooltip_html, sticky=True),
         ).add_to(fg)
     
@@ -231,14 +239,19 @@ def _build_national_map(show_state: bool, show_heatmap: bool,
             highlight_function=_state_highlight,
             tooltip=folium.GeoJsonTooltip(
                 fields=["state", "total_segments", "critical_segments", "mean_risk", "max_risk"],
-                aliases=["State", "Road Segments Scored", "Critical Segments (≥0.98)", 
-                        "Mean Risk Score", "Peak Risk Score"],
+                aliases=["State", "Road Segments", "Critical Segments", "Mean Risk", "Peak Risk"],
                 localize=True,
                 sticky=True,
                 style=(
-                    "background-color: #1a1a2e; color: white; "
-                    "font-family: monospace; font-size: 12px; padding: 8px; "
-                    "border-radius: 4px; border: 1px solid #4a90d9;"
+                    "background: rgba(255, 255, 255, 0.98); "
+                    "backdrop-filter: blur(10px); "
+                    "color: #1d1d1f; "
+                    "font-family: 'Inter', -apple-system, sans-serif; "
+                    "font-size: 13px; "
+                    "padding: 12px 16px; "
+                    "border-radius: 8px; "
+                    "border: 1px solid #e5e5ea; "
+                    "box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);"
                 ),
             ),
             zoom_on_click=True,
@@ -279,9 +292,20 @@ def _build_national_map(show_state: bool, show_heatmap: bool,
             highlight_function=_highrisk_highlight,
             tooltip=folium.GeoJsonTooltip(
                 fields=["road_segment_id", "predicted_risk", "state"],
-                aliases=["Segment:", "Risk Score:", "State:"],
+                aliases=["Segment ID", "Risk Score", "State"],
                 localize=True,
                 sticky=True,
+                style=(
+                    "background: rgba(255, 255, 255, 0.98); "
+                    "backdrop-filter: blur(10px); "
+                    "color: #1d1d1f; "
+                    "font-family: 'Inter', -apple-system, sans-serif; "
+                    "font-size: 13px; "
+                    "padding: 12px 16px; "
+                    "border-radius: 8px; "
+                    "border: 1px solid #e5e5ea; "
+                    "box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);"
+                ),
             ),
         ).add_to(m)
         colormap.add_to(m)
@@ -290,13 +314,24 @@ def _build_national_map(show_state: bool, show_heatmap: bool,
     if show_signs:
         _add_sign_placements(m, load_sign_placements())
 
-    # Add map title
+    # Add map title overlay
     title_html = """
-    <div style="position:fixed; top:12px; left:50%; transform:translateX(-50%);
-        background:white; padding:8px 18px; border-radius:8px;
-        box-shadow:0 2px 8px rgba(0,0,0,0.2); font-family:sans-serif;
-        font-size:15px; font-weight:600; z-index:9999; color:#1a1a1a;">
-        🦘 Australian Wildlife-Vehicle Collision Risk
+    <div style="position: fixed; 
+                top: 16px; 
+                left: 50%; 
+                transform: translateX(-50%);
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                padding: 10px 24px;
+                border-radius: 12px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+                font-family: 'Inter', -apple-system, sans-serif;
+                font-size: 14px;
+                font-weight: 600;
+                color: #1d1d1f;
+                z-index: 9999;
+                letter-spacing: -0.01em;">
+        🦘 Australian Wildlife-Vehicle Collision Risk Map
     </div>
     """
     m.get_root().html.add_child(folium.Element(title_html))

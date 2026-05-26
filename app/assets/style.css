@@ -1,146 +1,500 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@700&display=swap');
 
-/* Base */
+/* ─────────────────────────────────────────────────────────────────────────
+   Base & Typography
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+    /* Color Palette - Refined & Sophisticated */
+    --color-bg-primary: #fafafa;
+    --color-bg-secondary: #ffffff;
+    --color-bg-tertiary: #f5f5f7;
+    --color-text-primary: #1d1d1f;
+    --color-text-secondary: #6e6e73;
+    --color-text-tertiary: #86868b;
+    --color-accent: #007aff;
+    --color-accent-hover: #0051d5;
+    --color-success: #34c759;
+    --color-warning: #ff9500;
+    --color-danger: #ff3b30;
+    --color-border: #d2d2d7;
+    --color-border-light: #e5e5ea;
+    --color-shadow: rgba(0, 0, 0, 0.08);
+    --color-shadow-hover: rgba(0, 0, 0, 0.12);
+    
+    /* Spacing System */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+    --space-3xl: 4rem;
+    
+    /* Border Radius */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    
+    /* Transitions */
+    --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 html, body, [class*="css"] {
-    font-family: 'JetBrains Mono', monospace;
-    background-color: #0d1117;
-    color: #e6edf3;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--color-bg-primary) !important;
+    color: var(--color-text-primary) !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
-/* Hide Streamlit chrome */
-#MainMenu, footer, header { visibility: hidden; }
+/* Force light background on all Streamlit containers */
+.stApp {
+    background: var(--color-bg-primary) !important;
+}
+
+[data-testid="stAppViewContainer"] {
+    background: var(--color-bg-primary) !important;
+}
+
+[data-testid="stHeader"] {
+    background: transparent !important;
+}
+
+[data-testid="stToolbar"] {
+    background: transparent !important;
+}
+
+section[data-testid="stSidebar"] {
+    background: var(--color-bg-secondary) !important;
+}
+
+/* Override any dark theme remnants */
+.main, .block-container, [data-testid="stVerticalBlock"] {
+    background: transparent !important;
+}
+
+/* Hide Streamlit Branding */
+#MainMenu, footer, header { 
+    visibility: hidden; 
+    height: 0;
+}
+
 .block-container {
-    padding: 2rem 2.5rem 2rem 2.5rem;
-    max-width: 100%;
+    padding: var(--space-2xl) var(--space-xl) var(--space-3xl) var(--space-xl);
+    max-width: 1400px;
+    margin: 0 auto;
 }
 
-/* ── Header ── */
+/* Force light theme text colors — intentionally excludes button internals */
+p, span, label, h1, h2, h3, h4, h5, h6 {
+    color: var(--color-text-primary) !important;
+}
+
+/* Divs get color but NOT font-family, so component font overrides still work */
+div {
+    color: var(--color-text-primary) !important;
+}
+
+[data-testid="stMarkdownContainer"] p {
+    color: var(--color-text-primary) !important;
+}
+
+/* Override Streamlit's default text colors */
+.stMarkdown, .stText {
+    color: var(--color-text-primary) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Header Section
+   ───────────────────────────────────────────────────────────────────────── */
+
 .dash-header {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    border-bottom: 1px solid #f0883e33;
-    padding-bottom: 1.2rem;
-    margin-bottom: 1.8rem;
+    text-align: center;
+    padding: var(--space-2xl) 0 var(--space-xl) 0;
+    margin-bottom: var(--space-2xl);
+    animation: fadeInDown 0.6s var(--transition-base);
+    background: transparent !important;
 }
+
 .dash-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 2rem;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    color: #ffffff;
-    line-height: 1;
-    margin: 0;
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    color: var(--color-text-primary) !important;
+    line-height: 1.1;
+    margin: 0 0 var(--space-md) 0;
 }
-.dash-title span {
-    color: #f0883e;
+
+.dash-title .emoji {
+    display: inline-block;
+    animation: bounce 2s ease-in-out infinite;
 }
+
+.dash-title .highlight {
+    background: linear-gradient(135deg, var(--color-accent) 0%, #5856d6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
 .dash-subtitle {
-    font-size: 0.7rem;
-    color: #8b949e;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    margin: 0.35rem 0 0 0;
+    font-size: 1rem;
+    font-weight: 400;
+    color: var(--color-text-secondary) !important;
+    line-height: 1.5;
+    max-width: 600px;
+    margin: 0 auto !important;
+    text-align: center !important;
+    display: block !important;
 }
+
+/* Streamlit wraps injected HTML in stMarkdownContainer — override its alignment */
+[data-testid="stMarkdownContainer"] .dash-subtitle,
+[data-testid="stMarkdownContainer"] p.dash-subtitle {
+    text-align: center !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    color: var(--color-text-secondary) !important;
+}
+
 .dash-badge {
-    font-size: 0.65rem;
-    padding: 4px 10px;
-    border: 1px solid #f0883e55;
-    border-radius: 2px;
-    color: #f0883e;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    background: #f0883e0d;
-}
-
-/* ── Metric cards ── */
-[data-testid="metric-container"] {
-    background: #161b22;
-    border: 1px solid #21262d;
-    border-top: 2px solid #f0883e;
-    border-radius: 4px;
-    padding: 1rem 1.2rem !important;
-    transition: border-color 0.2s, transform 0.2s;
-}
-[data-testid="metric-container"]:hover {
-    border-top-color: #ffa657;
-    transform: translateY(-2px);
-}
-[data-testid="metric-container"] > div:first-child {
-    font-size: 0.65rem !important;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #8b949e !important;
-}
-[data-testid="metric-container"] [data-testid="stMetricValue"] {
-    font-family: 'Syne', sans-serif !important;
-    font-size: 1.6rem !important;
-    font-weight: 700 !important;
-    color: #ffffff !important;
-}
-[data-testid="metric-container"] [data-testid="stMetricDelta"] {
-    font-size: 0.65rem !important;
-    color: #f0883e !important;
-}
-
-/* ── Section labels ── */
-.section-label {
-    font-size: 0.6rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #8b949e;
-    margin: 1.6rem 0 0.6rem 0;
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-}
-.section-label::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: #21262d;
-}
-
-/* ── Map container ── */
-.map-wrapper {
-    border: 1px solid #21262d;
-    border-radius: 4px;
-    overflow: hidden;
-    box-shadow: 0 0 40px #f0883e0a;
+    gap: var(--space-xs);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: var(--space-xs) var(--space-md);
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary) !important;
+    border-radius: 100px;
+    margin-top: var(--space-md);
+    transition: all var(--transition-base);
 }
 
-/* ── SHAP panel ── */
-.stSubheader {
-    font-family: 'Syne', sans-serif !important;
-    font-size: 0.85rem !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.05em;
-    color: #e6edf3 !important;
+.dash-badge * {
+    color: inherit !important;
+}
+
+.dash-badge:hover {
+    background: var(--color-accent);
+    color: white !important;
+    transform: translateY(-1px);
+}
+
+.dash-badge:hover * {
+    color: white !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Metric Cards
+   ───────────────────────────────────────────────────────────────────────── */
+
+[data-testid="metric-container"] {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-md);
+    padding: var(--space-lg) var(--space-lg) !important;
+    transition: all var(--transition-base);
+    box-shadow: 0 1px 3px var(--color-shadow);
+}
+
+[data-testid="metric-container"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px var(--color-shadow-hover);
+    border-color: var(--color-accent);
+}
+
+[data-testid="metric-container"] > div:first-child {
+    font-size: 0.75rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.02em;
     text-transform: uppercase;
-}
-[data-testid="stCaptionContainer"] {
-    font-size: 0.68rem !important;
-    color: #8b949e !important;
-    font-family: 'JetBrains Mono', monospace !important;
+    color: var(--color-text-tertiary) !important;
+    margin-bottom: var(--space-sm);
 }
 
-/* ── Checkboxes (layer toggles) ── */
+/* JetBrains Mono for metric values — long chain to beat Streamlit's scoped styles */
+[data-testid="stMetric"] [data-testid="stMetricValue"],
+[data-testid="stMetric"] [data-testid="stMetricValue"] > div,
+[data-testid="stMetric"] [data-testid="stMetricValue"] div,
+[data-testid="stMetric"] [data-testid="stMetricValue"] span,
+[data-testid="metric-container"] [data-testid="stMetricValue"],
+[data-testid="metric-container"] [data-testid="stMetricValue"] > div,
+[data-testid="metric-container"] [data-testid="stMetricValue"] div,
+[data-testid="metric-container"] [data-testid="stMetricValue"] span {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace !important;
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+    color: var(--color-text-primary) !important;
+    line-height: 1.2 !important;
+}
+
+[data-testid="metric-container"] [data-testid="stMetricDelta"],
+[data-testid="metric-container"] [data-testid="stMetricDelta"] * {
+    font-size: 0.8rem !important;
+    font-weight: 500 !important;
+    margin-top: var(--space-xs);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Section Headers
+   ───────────────────────────────────────────────────────────────────────── */
+
+.section-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-text-primary) !important;
+    margin: var(--space-2xl) 0 var(--space-md) 0;
+    padding-bottom: var(--space-sm);
+    border-bottom: 2px solid var(--color-border-light);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Map Container
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Target st.container(border=True) used for map and layer controls */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: var(--radius-lg) !important;
+    border-color: var(--color-border-light) !important;
+    box-shadow: 0 4px 16px var(--color-shadow);
+    transition: box-shadow var(--transition-base);
+    background: var(--color-bg-secondary) !important;
+    overflow: hidden;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    box-shadow: 0 8px 32px var(--color-shadow-hover);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Layer Controls
+   ───────────────────────────────────────────────────────────────────────── */
+
+.layer-controls-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-sm);
+}
+
+[data-testid="stCheckbox"] {
+    padding: var(--space-sm) 0;
+}
+
 [data-testid="stCheckbox"] label {
-    font-size: 0.72rem !important;
-    letter-spacing: 0.06em;
-    color: #c9d1d9 !important;
-}
-[data-testid="stCheckbox"] [data-testid="stWidgetLabel"] {
-    color: #c9d1d9 !important;
-}
-
-/* ── Divider ── */
-hr {
-    border-color: #21262d !important;
-    margin: 1.2rem 0 !important;
+    font-size: 0.875rem !important;
+    font-weight: 400 !important;
+    color: var(--color-text-primary) !important;
+    cursor: pointer;
+    transition: color var(--transition-fast);
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: #0d1117; }
-::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+[data-testid="stCheckbox"] label:hover {
+    color: var(--color-accent) !important;
+}
+
+[data-testid="stCheckbox"] input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    border: 2px solid var(--color-border);
+    transition: all var(--transition-fast);
+}
+
+[data-testid="stCheckbox"] input[type="checkbox"]:checked {
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SHAP Panel
+   ───────────────────────────────────────────────────────────────────────── */
+
+.shap-panel-header {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--color-border-light);
+}
+
+[data-testid="stCaptionContainer"] {
+    font-size: 0.8rem !important;
+    color: var(--color-text-secondary) !important;
+    line-height: 1.5;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Buttons
+   ───────────────────────────────────────────────────────────────────────── */
+
+.stButton > button {
+    background: var(--color-bg-secondary) !important;
+    color: var(--color-text-primary) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm) var(--space-lg);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all var(--transition-fast);
+    box-shadow: 0 1px 3px var(--color-shadow);
+}
+
+.stButton > button:hover {
+    background: var(--color-accent) !important;
+    color: white !important;
+    border-color: var(--color-accent) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--color-shadow-hover);
+}
+
+.stButton > button:hover * {
+    color: white !important;
+}
+
+.stButton > button:active {
+    transform: translateY(0);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Footer
+   ───────────────────────────────────────────────────────────────────────── */
+
+.dash-footer {
+    margin-top: var(--space-3xl);
+    padding-top: var(--space-xl);
+    border-top: 1px solid var(--color-border-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+}
+
+.dash-footer-text {
+    font-size: 0.8rem;
+    color: var(--color-text-tertiary);
+}
+
+.dash-footer-link {
+    color: var(--color-accent);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color var(--transition-fast);
+}
+
+.dash-footer-link:hover {
+    color: var(--color-accent-hover);
+    text-decoration: underline;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Scrollbar
+   ───────────────────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-bg-tertiary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+    transition: background var(--transition-fast);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-tertiary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Animations
+   ───────────────────────────────────────────────────────────────────────── */
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes bounce {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-5px);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Responsive Design
+   ───────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .block-container {
+        padding: var(--space-lg) var(--space-md);
+    }
+    
+    .dash-header {
+        padding: var(--space-lg) 0;
+    }
+    
+    .dash-title {
+        font-size: 1.75rem;
+    }
+    
+    .dash-subtitle {
+        font-size: 0.875rem;
+    }
+    
+    [data-testid="metric-container"] [data-testid="stMetricValue"] {
+        font-size: 1.5rem !important;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Utility Classes
+   ───────────────────────────────────────────────────────────────────────── */
+
+.text-center {
+    text-align: center;
+}
+
+.mt-lg {
+    margin-top: var(--space-lg);
+}
+
+.mb-lg {
+    margin-bottom: var(--space-lg);
+}
+
+.fade-in {
+    animation: fadeIn 0.5s var(--transition-base);
+}

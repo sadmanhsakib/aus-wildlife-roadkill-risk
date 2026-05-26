@@ -40,37 +40,64 @@ html_data = load_html_assets()
 # ── Global styles ─────────────────────────────────────────────────────────────
 st.markdown(load_css(), unsafe_allow_html=True)
 
+# Inject font override into <head> — st.html writes to the iframe head,
+# bypassing Streamlit's body-level component styles that would otherwise win.
+st.html("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap');
+
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] > div,
+[data-testid="stMetricValue"] div,
+[data-testid="stMetricValue"] span,
+[data-testid="stMetricValue"] p {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-weight: 700 !important;
+}
+</style>
+""")
+
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown(html_data["header"], unsafe_allow_html=True)
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
+st.markdown('<div class="fade-in">', unsafe_allow_html=True)
 col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Road Segments Scored", "99,739")
-col2.metric("Wildlife Sightings", "413,000+")
-col3.metric("Critical Segments", "1,189", ">0.98 risk score")
-col4.metric("Species Covered", "11")
-col5.metric("States Covered", "8")
+col1.metric("Road Segments", "99,739", help="Total road segments analyzed across Australia")
+col2.metric("Wildlife Sightings", "413,000+", help="Verified wildlife occurrence records")
+col3.metric("Critical Segments", "1,189", "Risk > 0.98", help="High-priority segments requiring intervention")
+col4.metric("Species Covered", "11", help="Native Australian species included in analysis")
+col5.metric("States Covered", "8", help="All Australian states and territories")
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Map + SHAP layout ─────────────────────────────────────────────────────────
-st.markdown('<p class="section-label">Risk Map</p>', unsafe_allow_html=True)
+st.markdown('<p class="section-label">Interactive Risk Map</p>', unsafe_allow_html=True)
 
-map_col, shap_col = st.columns([3, 1], gap="medium")
+map_col, shap_col = st.columns([2.5, 1], gap="large")
 
 
 @st.fragment
 def _map_panel() -> None:
     """Render the interactive map with layer controls."""
-    layers = render_layer_controls()
+    # Layer controls
+    with st.container(border=True):
+        st.markdown(
+            '<div class="layer-controls-title">🗺️ Map Layers</div>'
+            '<p style="font-size: 0.8rem; color: var(--color-text-tertiary); margin: 0 0 0.5rem 0;">Toggle layers to customize the map view</p>',
+            unsafe_allow_html=True,
+        )
+        layers = render_layer_controls()
+
+    # Map rendering
     m, map_key = create_national_map(layers)
-    st.markdown('<div class="map-wrapper">', unsafe_allow_html=True)
-    map_output = st_folium(
-        m,
-        width="100%",
-        height=600,
-        key=f"national-map-{map_key}",
-        returned_objects=["last_object_clicked_popup", "last_object_clicked_tooltip"],
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        map_output = st_folium(
+            m,
+            width="100%",
+            height=650,
+            key=f"national-map-{map_key}",
+            returned_objects=["last_object_clicked_popup", "last_object_clicked_tooltip"],
+        )
 
     # Handle segment selection from map clicks
     segment_id = parse_clicked_segment(map_output)
@@ -83,17 +110,19 @@ with map_col:
     _map_panel()
 
 with shap_col:
-    st.markdown(
-        """<p class="section-label">Feature Attribution</p>
-            Click on any sign to get the feature attribution.
-        """,
-        unsafe_allow_html=True,
-    )
-    if st.session_state.selected_segment:
-        if st.button("✕ Clear", key="clear_shap"):
-            st.session_state.selected_segment = None
-            st.rerun()
-    render_shap_panel(st.session_state.selected_segment)
+    with st.container(border=True):
+        st.markdown('<div class="shap-panel-header">📊 Feature Attribution Analysis</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<p style="font-size: 0.85rem; color: var(--color-text-secondary); margin-bottom: 1rem;">Click any red sign marker on the map to view the SHAP waterfall plot explaining which features contributed to that location\'s high-risk score.</p>',
+            unsafe_allow_html=True,
+        )
+
+        if st.session_state.selected_segment:
+            if st.button("✕ Clear Selection", key="clear_shap", width="stretch"):
+                st.session_state.selected_segment = None
+                st.rerun()
+
+        render_shap_panel(st.session_state.selected_segment)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(html_data["footer"], unsafe_allow_html=True)
