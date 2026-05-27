@@ -488,7 +488,7 @@ aus-wildlife-roadkill-risk-mapper/
 │   │   └── shap_panel.py        # Per-segment SHAP waterfall charts
 │   └── streamlit_app.py         # Main application entry point
 ├── backup/                      # Per-species enriched parquet files (11 files)
-├── data/  (gitignored)
+├── data/
 │   ├── model/                   # Model files
 │   │   ├── feature_cols.pkl     # Serialised feature column list
 │   │   ├── model.pkl            # Trained XGBoost model (Optuna-optimised)
@@ -501,7 +501,7 @@ aus-wildlife-roadkill-risk-mapper/
 │   │   ├── road_segments.parquet     # labelled road segments of Australia
 │   │   ├── state_boundaries.parquet  # state boundaries of Australia
 │   │   └── state_boundaries_simplified.parquet  # simplified state boundaries for web rendering
-│   └── raw/                     # Shapefiles, GeoPackage, NDVI rasters
+│   └── raw/ (gitignored)        # Shapefiles, GeoPackage, NDVI rasters
 ├── docs/screenshots/            # Screenshots of the webapp 
 ├── notebooks/test.ipynb         # Jupyter notebook for exploration
 ├── scripts/

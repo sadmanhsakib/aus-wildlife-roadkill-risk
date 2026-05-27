@@ -1,0 +1,16 @@
+.ipynb_checkpoints/
+.venv/
+backup/
+data/raw
+data/processed/*
+!data/processed/state_boundaries_simplified.parquet
+docs/
+notebooks/
+scripts/
+sightings/
+.gitignore
+.python-version
+LICENSE
+README.md
+METHODOLOGY.md
+sightings.parquet
