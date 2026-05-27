@@ -9,6 +9,7 @@ docs/
 notebooks/
 scripts/
 sightings/
+.gitattributes
 .gitignore
 .python-version
 LICENSE
