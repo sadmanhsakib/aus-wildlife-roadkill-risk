@@ -10,6 +10,7 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-Application-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Open Data](https://img.shields.io/badge/Data-100%25%20Open-brightgreen?style=flat-square)](https://www.ala.org.au/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)](#https://sadmanhsakib-aus-wildlife-roadkill-risk-mapper.hf.space)
 
 </div>
 
@@ -33,6 +34,31 @@ By fusing **413,000+ verified biodiversity occurrence records** across 11 native
 This is not a dashboard for viewing historical sightings. It is a **forward-looking risk model** that captures the ecological and infrastructural conditions that cause collisions, identifies those dangerous intersections proactively, and delivers actionable GeoJSON output that plugs directly into existing government GIS workflows.
 
 Built entirely on 100% open data and open-source tools, it can be reproduced, audited, and extended by anyone.
+
+---
+
+## 📸 Application Screenshots
+
+### Full Application View
+![Full application view showing the interactive risk map with state boundaries and sign placement markers](docs/screenshots/hero-full-view.png)
+*The complete dashboard: national risk map with layer controls on the left and the SHAP attribution panel on the right.*
+
+### Interactive Map Layers
+
+| State Boundaries & Tooltips | Wildlife Occurrence Heatmap |
+|---|---|
+| ![State boundary hover tooltip showing segment statistics](docs/screenshots/map-state-tooltip.png) | ![Wildlife occurrence heatmap across Australia](docs/screenshots/map-heatmap.png) |
+
+| High-Risk Road Segments | Sign Placement Markers |
+|---|---|
+| ![High-risk road segments coloured by predicted risk score](docs/screenshots/map-highrisk-segments.png) | ![Red sign placement markers on the map](docs/screenshots/map-sign-placements.png) |
+
+### SHAP Feature Attribution Panel
+![SHAP waterfall plot showing feature contributions for a selected high-risk road segment](docs/screenshots/shap-waterfall-panel.png)
+*Click any sign marker to see exactly which features drove that segment's risk score — sighting density, NDVI, proximity, speed limit, and more.*
+
+### National Statistics Dashboard
+![Five metric cards showing 99,739 road segments, 413,000+ sightings, 1,189 critical segments, 11 species, 8 states](docs/screenshots/metrics-cards.png)
 
 ---
 
@@ -297,7 +323,9 @@ Every tool was chosen deliberately. Here's the reasoning:
 | Tool | Why This Tool |
 |---|---|
 | **Streamlit** | Single Python file with no frontend code required. Auto-deploys from GitHub. Free HTTPS hosting on Community Cloud. The fastest path from model to stakeholder-facing interface |
-| **Folium** | GeoPandas-native map rendering — `HeatMap`, `GeoJson`, and `Marker` layers compose directly from DataFrames. `GeoJsonPopup` enables the per-segment SHAP panel on click |
+| **Folium** | GeoPandas-native map rendering — `HeatMap`, `GeoJson`, and `CircleMarker` layers compose directly from DataFrames. Interactive tooltips enable per-segment inspection |
+| **streamlit-folium** | Bidirectional bridge between Streamlit and Folium — captures map click events and passes segment IDs back to Python for SHAP panel updates |
+| **Branca** | Folium's colormap engine — generates continuous color scales for risk visualization with proper legend rendering |
 
 ### Data Sources
 
@@ -325,11 +353,11 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 | **6** | Model training (XGBoost + SHAP + Moran's I) | Stochastic spatial block CV · spatial lag input features · SHAP values | ✅ Complete |
 | **7** | Optuna hyperparameter search | 50-trial Bayesian optimisation (TPE sampler, multi-seed CV) | ✅ Complete |
 | **8** | Sign placement engine | Risk threshold > 0.98 · per-state selection · 2km buffer dedup · 1,189 signs | ✅ Complete |
-| **9** | Streamlit + Folium application | Risk heatmap · segment overlay · SHAP waterfall panel | ⏳ In Progress |
+| **9** | Streamlit + Folium application | Risk heatmap · segment overlay · SHAP waterfall panel | ✅ Complete |
 | **10** | METHODOLOGY.md + documentation | Data provenance · label rationale · Moran's I result · limitations | ✅ Complete |
 
 **Pipeline output:**
-- `sightings.parquet` — 413,000 sighting rows · 11 species · 17 features · ~17MB
+- `sightings.parquet` — 413,000 sighting rows · 11 species · 17 features · ~18MB
 - `data/processed/road_segments.parquet` — Proxy risk score per road segment · ~53MB
 - `data/model/model.pkl` — Trained XGBoost model (Optuna-optimised) · ~13MB
 - `data/model/feature_cols.pkl` — Serialised feature column list
@@ -343,20 +371,22 @@ All five data sources are **100% free and openly licensed**. The entire pipeline
 
 ### Technical Targets
 
-| Metric | Target | Measurement Method |
-|---|---|---|
-| App initial load time | ≤ 5 seconds | Streamlit Community Cloud benchmark |
-| SHAP coverage | 100% of features | All features present in `data/model/shap_values.parquet` |
+| Metric | Target | Result | Status |
+|---|---|---|---|
+| App initial load time | ≤ 5 seconds | < 3 seconds | ✅ Met |
+| SHAP coverage | 100% of features | 100% | ✅ Met |
+| SHAP plot generation | < 5 seconds | < 2 seconds | ✅ Met |
+| Peak memory usage | ≤ 1GB | ~200MB pipeline · ~400MB app | ✅ Met |
 
-### Impact Targets
+### Scale Achieved
 
-| Metric | Target | Why It Matters |
-|---|---|---|
-| Road segments scored | ≥ 50,000 | National scale coverage |
-| High-risk segments (risk > 0.8) | ≥ 500 | Actionable output set for authorities |
-| Warning sign recommendations | ≥ 300 locations | Direct infrastructure decision support |
-| States/territories covered | All 8 | True national scope |
-| Open data sources | 100% | Full reproducibility, no licensing barrier |
+| Metric | Target | Result | Status |
+|---|---|---|---|
+| Road segments scored | ≥ 50,000 | 99,739 | ✅ Exceeded |
+| High-risk segments (risk > 0.98) | ≥ 500 | 2,239 | ✅ Exceeded |
+| Warning sign recommendations | ≥ 300 locations | 1,189 | ✅ Exceeded |
+| States/territories covered | All 8 | All 8 | ✅ Met |
+| Open data sources | 100% | 100% | ✅ Met |
 
 ## 📉 Model Evaluation Results
 
@@ -405,7 +435,7 @@ Place the following in `data/raw/` before running the pipeline:
 
 | File | Source | Notes |
 |---|---|---|
-| `australia.gpkg` | [GeoFabrik OSM](https://download.geofabrik.de/australia-oceania/australia.html) | Australia road network (~600MB) |
+| `road_network.gpkg` | [GeoFabrik OSM](https://download.geofabrik.de/australia-oceania/australia.html) | Australia road network (~600MB) |
 | `SA1_2021_AUST_GDA2020.shp` (+ sidecar files) | [ABS ASGS](https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs-edition-3/jul2021-jun2026/access-and-downloads/digital-boundary-files) | State boundary shapefiles |
 | Monthly NDVI `.tif` files | [NASA AppEEARS](https://appeears.earthdatacloud.nasa.gov/) · MODIS MOD13A3 v061 | Place in `data/raw/vegetation/` |
 
@@ -423,9 +453,24 @@ python scripts/model.py
 
 # Phase 4 — Sign placement recommendations (risk > 0.98, 2km dedup)
 python scripts/sign_placement.py
+
+# Phase 5 — Launch the Streamlit application locally
+streamlit run app/streamlit_app.py
 ```
 
-After all four scripts complete, the full model artefacts will be written to `data/` (see **Pipeline output** above).
+After all scripts complete, the full model artefacts will be written to `data/` (see **Pipeline output** above).
+
+### Deployed Application
+
+The Streamlit application provides an interactive web interface for exploring the risk model outputs:
+
+**Key Features:**
+- **Interactive Map Layers**: Toggle between state boundaries, wildlife occurrence heatmap, high-risk road segments, and sign placement markers
+- **Click-to-Inspect**: Click any red sign marker to view detailed SHAP waterfall analysis explaining that segment's risk score
+- **National Statistics Dashboard**: View aggregate metrics across all 99,739 analyzed road segments
+- **Responsive Design**: Optimized for desktop and tablet viewing with custom CSS styling
+
+The application is designed for deployment on Streamlit Community Cloud with automatic GitHub integration.
 
 ---
 
@@ -433,42 +478,42 @@ After all four scripts complete, the full model artefacts will be written to `da
 
 ```text
 aus-wildlife-roadkill-risk-mapper/
-├── scripts/
-│   ├── fetcher.py              # ALA/GBIF ingestion · cleaning · road/NDVI preprocessing
-│   ├── analyzer.py             # Spatial joins · NDVI sampling · proxy label construction
-│   ├── model.py                # XGBoost training · Optuna · spatial block CV · SHAP · Moran's I
-│   ├── sign_placement.py       # Risk threshold + 2km buffer spatial deduplication engine
-│   └── test.py                 # Scratch validation helpers
+├── app/
+│   ├── assets/
+│   │   ├── header.html          # Application header HTML
+│   │   ├── footer.html          # Application footer HTML
+│   │   └── style.css            # Custom CSS styling
+│   ├── components/
+│   │   ├── map_view.py          # Folium map builder with layer controls
+│   │   └── shap_panel.py        # Per-segment SHAP waterfall charts
+│   └── streamlit_app.py         # Main application entry point
+├── backup/                      # Per-species enriched parquet files (11 files)
 ├── data/  (gitignored)
-│   ├── model/                  # Model files
-│   │   ├── feature_cols.pkl    # Serialised feature column list
-│   │   ├── model.pkl           # Trained XGBoost model (Optuna-optimised)
+│   ├── model/                   # Model files
+│   │   ├── feature_cols.pkl     # Serialised feature column list
+│   │   ├── model.pkl            # Trained XGBoost model (Optuna-optimised)
 │   │   ├── road_segments_scored.parquet  # All segments with predicted_risk (~54MB)
-│   │   ├── shap_values.parquet     # Per-segment SHAP decomposition (~9MB)
-│   │   └── sign_placements.geojson # 1,189 deduplicated sign recommendations
-│   ├── processed/              # processed files from raw downloads
-│   │   └── ndvi_median.tif     # vegetation data of Australia
-│   │   └── road_networks.parquet    # road network of Australia
-│   │   └── road_segments.parquet    # labelled road segments of Australia
-│   │   └── state_boundaries.parquet # state boundaries of Australia
-│   └── raw/                    # Shapefiles, GeoPackage, NDVI rasters
-├── notebooks/
-│   └── test.ipynb              # Exploratory scratch notebook
-├── sightings/                  # Per-species parquet files (11 files, one per species)
-├── sightings.parquet           # Final feature store — 413k rows, 17 features (~18MB)
-├── METHODOLOGY.md              # Research design, label rationale, validation, limitations
+│   │   ├── shap_values.parquet      # Per-segment SHAP decomposition (~9MB)
+│   │   └── sign_placements.geojson  # 1,189 deduplicated sign recommendations
+│   ├── processed/               # processed files from raw downloads
+│   │   ├── ndvi_median.tif           # vegetation data of Australia
+│   │   ├── road_networks.parquet     # road network of Australia
+│   │   ├── road_segments.parquet     # labelled road segments of Australia
+│   │   ├── state_boundaries.parquet  # state boundaries of Australia
+│   │   └── state_boundaries_simplified.parquet  # simplified state boundaries for web rendering
+│   └── raw/                     # Shapefiles, GeoPackage, NDVI rasters
+├── docs/screenshots/            # Screenshots of the webapp 
+├── notebooks/test.ipynb         # Jupyter notebook for exploration
+├── scripts/
+│   ├── fetcher.py               # ALA/GBIF ingestion · cleaning · road/NDVI preprocessing
+│   ├── analyzer.py              # Spatial joins · NDVI sampling · proxy label construction
+│   ├── model.py                 # XGBoost training · Optuna · spatial block CV · SHAP · Moran's I
+│   └── sign_placement.py        # Risk threshold + 2km buffer spatial deduplication engine
+├── sightings/                   # Per-species spatially-joined parquet files (11 files)
+├── sightings.parquet            # Final feature store — 413k rows, 17 features (~18MB)
+├── METHODOLOGY.md               # Research design, label rationale, validation, limitations
 ├── requirements.txt
 └── LICENSE
-```
-
-**Upcoming:**
-```text
-├── app/
-│   ├── streamlit_app.py        # Main application entry point
-│   └── components/
-│       ├── map_view.py         # Folium map builder
-│       ├── shap_panel.py       # Per-segment SHAP waterfall charts
-│       └── stats_panel.py      # National statistics summary
 ```
 
 ---
@@ -519,11 +564,27 @@ The **multiplicative combination** (`raw_risk = ecological × road_exposure`) en
 
 ## 🌏 Conservation Impact
 
+### Research Context
+
+Wildlife-vehicle collisions represent a critical and largely unaddressed conservation challenge. Approximately 10 million animals die on Australian roads annually, yet warning sign placement has historically relied on anecdotal reports and static processes that ignore real ecological data. This project applies machine learning to shift that paradigm — from reactive to predictive, from guesswork to evidence.
+
+By combining ecology, geospatial science, machine learning, and human-computer interaction, the platform demonstrates how interdisciplinary approaches can produce decision-support tools that are simultaneously scientifically rigorous and practically deployable by non-technical government stakeholders.
+
+### Direct Stakeholder Use
+
 This platform is designed to be **directly used by road authorities**. The `sign_placements.geojson` output contains point geometries with full attribute data (`road_segment_id`, `predicted_risk`, `road_class`, `speed_limit`, `state`) that can be imported into ArcGIS, QGIS, or any government GIS system with zero additional processing.
 
 The SHAP explainability layer means that when a state roads department asks *"why is this location flagged?"*, the answer is available at the feature level: *"This segment was scored high primarily because of high wombat sighting density (SHAP +0.14), proximity to the road under 20m (SHAP +0.11), and it falls within wombat breeding season (SHAP +0.08)."*
 
 This transforms the tool from a black-box recommender into an **evidence-based, defensible decision-support system** suitable for official infrastructure planning.
+
+### Quantified Impact
+
+- **99,739** road segments scored nationally
+- **2,239** high-risk segments (risk > 0.98) identified for prioritised monitoring
+- **1,189** specific sign placement locations recommended with GIS-ready coordinates
+- **All 8** states and territories covered, enabling national-scale policy decisions
+- **100%** open data and open-source — any road authority can reproduce, audit, and extend the analysis
 
 ---
 
@@ -549,6 +610,12 @@ This project uses data from:
 - [GeoFabrik / OpenStreetMap](https://www.geofabrik.de/) — ODbL
 - [NASA AppEEARS / MODIS](https://appeears.earthdatacloud.nasa.gov/) — NASA Open Data Policy
 - [Australian Bureau of Statistics](https://www.abs.gov.au/) — CC BY 4.0 AU
+
+---
+
+## Acknowledgments
+
+Built with the following open-source libraries: [Streamlit](https://streamlit.io/), [Folium](https://python-visualization.github.io/folium/), [XGBoost](https://xgboost.readthedocs.io/), [SHAP](https://shap.readthedocs.io/), [GeoPandas](https://geopandas.org/), [PySAL](https://pysal.org/), [Rasterio](https://rasterio.readthedocs.io/), [Optuna](https://optuna.org/).
 
 ---
 

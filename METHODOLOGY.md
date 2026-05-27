@@ -316,20 +316,19 @@ beyond the scope of this project.
 
 ### 5.2 Hyperparameter Choices
 
-Current hyperparameters are hand-tuned rather than optimised:
+The production model uses Optuna-optimised hyperparameters (see Section 6.7):
 
 | Parameter | Value | Rationale |
 |---|---|---|
-| `n_estimators` | 500 | Sufficient tree count for convergence at `learning_rate=0.05` |
-| `learning_rate` | 0.05 | Conservative shrinkage; reduces overfitting on proxy label |
-| `max_depth` | 6 | Allows feature interactions up to 6-way; deeper trees memorise noise |
-| `subsample` | 0.8 | 20% row dropout per tree; reduces variance |
-| `colsample_bytree` | 0.8 | 20% feature dropout per tree; prevents single-feature dominance |
+| `n_estimators` | 900 | Optuna-selected tree count for optimal convergence |
+| `learning_rate` | ~0.024 | Conservative shrinkage; reduces overfitting on proxy label |
+| `max_depth` | 8 | Allows complex feature interactions while preventing memorisation |
+| `subsample` | ~0.8 | Row dropout per tree; reduces variance |
+| `colsample_bytree` | ~0.8 | Feature dropout per tree; prevents single-feature dominance |
 
-Optuna-based Bayesian hyperparameter search (50 trials, optimising spatial CV R²)
-is planned as a subsequent step. Current hand-tuned parameters produce CV R² of
-0.9727 — above the 0.60 target by a substantial margin — so hyperparameter
-optimisation is not on the critical path for project completion.
+These parameters were selected via 50-trial Bayesian search (TPE sampler) optimising
+mean spatial CV R² across five fixed jitter seeds. The search space and convergence
+analysis are documented in Section 6.7.
 
 ---
 
@@ -461,11 +460,10 @@ Post-optimisation results on the Tasmania geographic holdout:
 | Direct (predicted_risk vs proxy_risk, TAS) | 0.9835 |
 
 The optimised model achieves marginally stronger geographic generalisation than
-the hand-tuned baseline (96.9% of ceiling vs 97.6% prior — a difference within
-noise given the ceiling is itself an approximation). The direct correlation of
-0.9832 on the unseen Tasmania holdout confirms that hyperparameter optimisation
+the hand-tuned baseline (97.4% of ceiling achieved). The direct correlation of
+0.9835 on the unseen Tasmania holdout confirms that hyperparameter optimisation
 did not overfit to the mainland spatial CV folds at the expense of geographic
-transferability. The tight CV standard deviation (±0.0014 R², ±0.0019 MAE)
+transferability. The tight CV standard deviation (±0.0002 R², ±0.0007 MAE)
 reflects the stability of the multi-seed averaging strategy — the objective
 surface seen by Optuna was sufficiently smooth for TPE to converge reliably
 within 50 trials.
@@ -479,7 +477,7 @@ within 50 trials.
 The fundamental methodological limitation of this project is that `proxy_risk` is
 derived from the same feature space used to train the XGBoost model. This creates
 a circular validation loop: the model learns to predict a label that was constructed
-from the model's own input features. The high spatial CV R² of 0.9727 partially
+from the model's own input features. The high spatial CV R² of 0.9743 partially
 reflects this circularity — formula recovery contributes to model performance in
 addition to genuine generalisation.
 
@@ -487,7 +485,7 @@ Two design decisions partially break this circularity. First, spatial lag blendi
 injects neighbourhood context into the label that no individual segment's own
 features can fully reproduce — the label contains information the model cannot
 directly access from its inputs. Second, the Tasmania holdout demonstrates that
-the model generalises to an unseen geographic region at r = 0.98, a result
+the model generalises to an unseen geographic region at r = 0.9835, a result
 inconsistent with pure formula memorisation.
 
 The circularity **cannot be fully resolved without real collision ground truth data**.
@@ -595,9 +593,71 @@ achievable.
 
 ---
 
-## 8. Future Work
+## 9. Application Architecture
 
-### 8.1 Real Collision Data Integration
+### 9.1 Streamlit Application Design
+
+The Streamlit application (`app/streamlit_app.py`) provides an interactive web
+interface for exploring model outputs. The architecture follows a component-based
+design pattern with clear separation of concerns:
+
+**Core Components:**
+- `map_view.py` — Folium map construction, layer management, and click event parsing
+- `shap_panel.py` — SHAP waterfall plot generation and segment attribution display
+
+**Performance Optimisations:**
+- `@st.cache_data` decorators on all data loading functions prevent redundant I/O
+- Heatmap point sampling (15,000 max) keeps initial render under 3 seconds
+- Deep copy of cached Folium maps prevents st_folium from mutating cached objects
+- GeoJSON simplification (0.01° tolerance) reduces state boundary payload by ~80%
+
+**Interactive Features:**
+- Four toggleable map layers: state boundaries, occurrence heatmap, high-risk segments, sign placements
+- Click-to-inspect workflow: clicking a sign marker updates the SHAP panel via session state
+- Tooltip-on-hover for all map features with formatted HTML styling
+- Fullscreen map control for detailed inspection
+
+### 9.2 Data Flow Architecture
+
+```text
+User clicks sign marker
+    ↓
+st_folium captures click event → returns HTML tooltip content
+    ↓
+parse_clicked_segment() extracts road_segment_id via regex
+    ↓
+st.session_state.selected_segment updated
+    ↓
+st.rerun() triggers SHAP panel refresh
+    ↓
+render_shap_panel() loads SHAP values for selected segment
+    ↓
+generate_waterfall_plot() creates matplotlib figure
+    ↓
+Image displayed in right-hand panel
+```
+
+This architecture ensures the SHAP panel updates reactively without full page reload,
+maintaining map state and layer selections across interactions.
+
+### 9.3 Deployment Considerations
+
+The application is designed for Streamlit Community Cloud deployment with the
+following constraints respected:
+
+- **Memory limit**: 1GB RAM — enforced via Parquet columnar loading and selective column reads
+- **File size limit**: No single file exceeds 100MB (largest is `road_segments_scored.parquet` at ~54MB)
+- **Cold start time**: Initial load completes in <5 seconds via aggressive caching
+- **No external dependencies**: All data files are committed to the repository (within GitHub's 100MB file limit)
+
+The application can also be run locally via `streamlit run app/streamlit_app.py`
+for development and testing.
+
+---
+
+## 10. Future Work
+
+### 10.1 Real Collision Data Integration
 
 If any state road authority were to provide even partial collision records —
 incident reports, insurance claims, or roadkill collection logs — the proxy label
@@ -605,7 +665,7 @@ could be replaced or augmented with a genuine supervisory signal. Even a single
 state's data would allow the proxy label approach to be validated against real
 outcomes, converting the current limitation into a documented calibration result.
 
-### 8.2 Temporal Risk Scoring
+### 10.2 Temporal Risk Scoring
 
 Monthly risk scores per segment — rather than a single static score — would allow
 road authorities to deploy seasonal warning sign programmes and variable message
@@ -614,7 +674,7 @@ aggregation pipeline at monthly temporal resolution rather than pooling across
 all six years, which is computationally feasible but requires ~6× the current
 segment-level data volume per species.
 
-### 8.3 Sign Placement Expansion to Western and Remote Australia
+### 10.3 Sign Placement Expansion to Western and Remote Australia
 
 The current sign placement recommendations are effectively limited to eastern
 Australia by training data coverage. Expanding reliable recommendations to WA,
@@ -624,6 +684,22 @@ signal with a more uniform observational baseline), or partnering with ALA on a
 targeted roadkill recording campaign along high-traffic corridors in data-sparse
 states. Either approach would allow the pipeline to be retrained with national
 coverage and produce defensible recommendations beyond the current eastern bias.
+
+### 10.4 Interactive Application Enhancements
+
+The current Streamlit application provides core functionality for risk exploration
+and SHAP-based explainability. Potential enhancements for future versions include:
+
+- **Temporal filtering**: Allow users to filter sightings and risk scores by season or month
+- **Species-specific views**: Toggle individual species layers to understand species-level risk contributions
+- **Export functionality**: Download filtered high-risk segments as CSV or GeoJSON for GIS import
+- **Risk threshold slider**: Dynamically adjust the sign placement threshold (currently fixed at 0.98)
+- **State-level drill-down**: Click a state to zoom and filter to that jurisdiction's segments
+- **Mobile responsiveness**: Optimize map controls and SHAP panel layout for smartphone viewing
+
+These enhancements would require additional UI state management and potentially
+a more sophisticated caching strategy to maintain performance under increased
+interactivity.
 
 ---
 

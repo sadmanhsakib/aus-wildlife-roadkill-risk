@@ -47,7 +47,7 @@ st.markdown(html_data["header"], unsafe_allow_html=True)
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Road Segments", "99,739", help="Total road segments analyzed across Australia")
 col2.metric("Wildlife Sightings", "413,000+", help="Verified wildlife occurrence records")
-col3.metric("Critical Segments", "1,189", "Risk > 0.98", help="High-priority segments requiring intervention")
+col3.metric("Critical Segments", "2,239", "Risk > 0.98", help="High-priority segments requiring intervention")
 col4.metric("Species Covered", "11", help="Native Australian species included in analysis")
 col5.metric("States Covered", "8", help="All Australian states and territories")
 

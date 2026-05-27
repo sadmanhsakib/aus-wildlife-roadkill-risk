@@ -152,5 +152,5 @@ def render_shap_panel(segment_id: int | None = None) -> None:
     )
     
     # Display waterfall plot
-    st.image(generate_waterfall_plot(segment_id), use_container_width=True)
+    st.image(generate_waterfall_plot(segment_id), width="stretch")
 
