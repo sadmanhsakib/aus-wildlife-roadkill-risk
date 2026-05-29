@@ -10,7 +10,8 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-Application-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![Open Data](https://img.shields.io/badge/Data-100%25%20Open-brightgreen?style=flat-square)](https://www.ala.org.au/)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)](#https://sadmanhsakib-aus-wildlife-roadkill-risk-mapper.hf.space)
+[![Live App](https://img.shields.io/badge/-HuggingFace-3B4252?style=flat&logo=huggingface&logoColor=)](https://sadmanhsakib-aus-wildlife-roadkill-risk-mapper.hf.space/)
+
 
 </div>
 
