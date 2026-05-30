@@ -53,6 +53,6 @@ jobs:
               repo: context.repo.repo,
               deployment_id: ${{ steps.create_deployment.outputs.deployment_id }},
               state: 'success',
-              environment_url: 'https://huggingface.co/spaces/sadmanhsakib/aus-wildlife-roadkill-risk-mapper',
+              environment_url: 'https://sadmanhsakib-aus-wildlife-roadkill-risk-mapper.hf.space/',
               description: 'Live on Hugging Face Spaces',
             });
